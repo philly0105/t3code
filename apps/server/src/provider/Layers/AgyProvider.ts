@@ -8,6 +8,7 @@ import { causeErrorTag } from "@t3tools/shared/observability";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { HttpClient } from "effect/unstable/http";
@@ -18,6 +19,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import {
   buildServerProvider,
   isCommandMissingCause,
+  parseGenericCliVersion,
   providerModelsFromSettings,
   spawnAndCollect,
   type ServerProviderDraft,
@@ -39,6 +41,11 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({ optionDe
 const VERSION_PROBE_TIMEOUT_MS = 4_000;
 const AGY_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
 
+/**
+ * Parses the model list emitted by `agy models`.
+ * The output is expected to be one model per line, with tab-separated slug and display name.
+ * This list is fetched live because available models are scoped to the authenticated account.
+ */
 export function parseAgyModelsOutput(stdout: string): ReadonlyArray<ServerProviderModel> {
   const seen = new Set<string>();
   return stdout
@@ -48,7 +55,7 @@ export function parseAgyModelsOutput(stdout: string): ReadonlyArray<ServerProvid
     .flatMap((line): ReadonlyArray<ServerProviderModel> => {
       const [rawSlug, rawName] = line.split("\t");
       const slug = rawSlug?.trim();
-      if (!slug || seen.has(slug)) return [];
+      if (!slug || seen.has(slug) || !/^[A-Za-z0-9._-]+$/.test(slug)) return [];
       seen.add(slug);
       return [
         {
@@ -66,7 +73,7 @@ export function buildInitialAgyProviderSnapshot(
 ): Effect.Effect<ServerProviderDraft> {
   return Effect.gen(function* () {
     const checkedAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
-    const models = providerModelsFromSettings([], settings.customModels ?? [], EMPTY_CAPABILITIES);
+    const models = providerModelsFromSettings([], settings.customModels, EMPTY_CAPABILITIES);
 
     if (!settings.enabled) {
       return buildServerProvider({
@@ -100,28 +107,14 @@ export function buildInitialAgyProviderSnapshot(
   });
 }
 
-const runAgyVersionCommand = (
+const runAgyCommand = (
   settings: AgySettings,
+  args: ReadonlyArray<string>,
   environment: NodeJS.ProcessEnv = process.env,
 ) =>
   Effect.gen(function* () {
     const command = settings.binaryPath || "agy";
-    const spawnCommand = yield* resolveSpawnCommand(command, ["--version"], {
-      env: environment,
-    });
-    return yield* spawnAndCollect(
-      command,
-      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-        env: environment,
-        shell: spawnCommand.shell,
-      }),
-    );
-  });
-
-const runAgyModelsCommand = (settings: AgySettings, environment: NodeJS.ProcessEnv = process.env) =>
-  Effect.gen(function* () {
-    const command = settings.binaryPath || "agy";
-    const spawnCommand = yield* resolveSpawnCommand(command, ["models"], {
+    const spawnCommand = yield* resolveSpawnCommand(command, args, {
       env: environment,
     });
     return yield* spawnAndCollect(
@@ -142,11 +135,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
   ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
 > {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const fallbackModels = providerModelsFromSettings(
-    [],
-    settings.customModels ?? [],
-    EMPTY_CAPABILITIES,
-  );
+  const fallbackModels = providerModelsFromSettings([], settings.customModels, EMPTY_CAPABILITIES);
 
   if (!settings.enabled) {
     return buildServerProvider({
@@ -164,7 +153,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     });
   }
 
-  const versionResult = yield* runAgyVersionCommand(settings, environment).pipe(
+  const versionResult = yield* runAgyCommand(settings, ["--version"], environment).pipe(
     Effect.timeoutOption(VERSION_PROBE_TIMEOUT_MS),
     Effect.result,
   );
@@ -209,10 +198,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
 
   const versionOutput = versionResult.success.value;
   const version =
-    versionOutput.stdout
-      .split("\n")
-      .map((l) => l.trim())
-      .find((l) => l.length > 0) ?? null;
+    parseGenericCliVersion(`${versionOutput.stdout}\n${versionOutput.stderr}`) ?? null;
 
   if (versionOutput.code !== 0) {
     yield* Effect.logWarning("Antigravity CLI version probe exited with a non-zero status.", {
@@ -235,15 +221,14 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     });
   }
 
-  const modelsResult = yield* runAgyModelsCommand(settings, environment).pipe(
+  const modelsExit = yield* runAgyCommand(settings, ["models"], environment).pipe(
     Effect.timeoutOption(AGY_MODEL_DISCOVERY_TIMEOUT_MS),
-    Effect.result,
+    Effect.exit,
   );
 
-  if (Result.isFailure(modelsResult)) {
-    const error = modelsResult.failure;
+  if (Exit.isFailure(modelsExit)) {
     yield* Effect.logWarning("Antigravity CLI model discovery failed.", {
-      errorTag: error._tag,
+      errorTag: causeErrorTag(modelsExit.cause),
     });
     return buildServerProvider({
       presentation: AGY_PRESENTATION,
@@ -261,7 +246,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     });
   }
 
-  if (Option.isNone(modelsResult.success)) {
+  if (Option.isNone(modelsExit.value)) {
     yield* Effect.logWarning(
       `Antigravity CLI model discovery timed out after ${AGY_MODEL_DISCOVERY_TIMEOUT_MS}ms.`,
     );
@@ -280,7 +265,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     });
   }
 
-  const modelsOutput = modelsResult.success.value;
+  const modelsOutput = modelsExit.value.value;
   if (modelsOutput.code !== 0) {
     yield* Effect.logWarning("Antigravity CLI models command exited with a non-zero status.", {
       exitCode: modelsOutput.code,
@@ -305,11 +290,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
   const discoveredModels = parseAgyModelsOutput(modelsOutput.stdout);
   const models =
     discoveredModels.length > 0
-      ? providerModelsFromSettings(
-          discoveredModels,
-          settings.customModels ?? [],
-          EMPTY_CAPABILITIES,
-        )
+      ? providerModelsFromSettings(discoveredModels, settings.customModels, EMPTY_CAPABILITIES)
       : fallbackModels;
 
   return buildServerProvider({
