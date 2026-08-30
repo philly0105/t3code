@@ -50,6 +50,7 @@ export interface AgyAdapterLiveOptions {
 }
 
 interface SessionState {
+  readonly threadId: ThreadId;
   session: ProviderSession;
   cwd: string;
   model: string | undefined;
@@ -57,6 +58,8 @@ interface SessionState {
   conversationId: string | undefined;
   process: AgyProcess | undefined;
   pumpFiber: Fiber.Fiber<void, unknown> | undefined;
+  spawnGeneration: number;
+  stopped: boolean;
   readonly scope: Scope.Closeable;
   activeTurn:
     | {
@@ -153,19 +156,35 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
 
-    const stopSessionInternal = (threadId: ThreadId, state: SessionState) =>
+    const stopSessionInternal = (state: SessionState) =>
       Effect.gen(function* () {
+        if (state.stopped) return;
+        state.stopped = true;
+        state.spawnGeneration += 1;
         if (state.activeTurn) {
           yield* Deferred.fail(
             state.activeTurn.deferred,
             new ProviderAdapterProcessError({
               provider: PROVIDER,
-              threadId,
+              threadId: state.threadId,
               detail: "Session stopped",
             }),
           ).pipe(Effect.ignore);
+          state.activeTurn = undefined;
         }
-        yield* Effect.forkChild(Effect.ignore(Scope.close(state.scope, Exit.void)));
+        if (state.pumpFiber) {
+          yield* Fiber.interrupt(state.pumpFiber).pipe(Effect.ignore);
+          state.pumpFiber = undefined;
+        }
+        yield* Effect.ignore(Scope.close(state.scope, Exit.void));
+        sessions.delete(state.threadId);
+        yield* offerRuntimeEvent({
+          type: "session.exited",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: state.threadId,
+          payload: { exitKind: "graceful" },
+        });
       });
 
     const startSession: AgyAdapterShape["startSession"] = (input) =>
@@ -189,8 +208,8 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
 
           const cwd = path.resolve(input.cwd.trim());
           const existing = sessions.get(input.threadId);
-          if (existing) {
-            yield* stopSessionInternal(input.threadId, existing);
+          if (existing && !existing.stopped) {
+            yield* stopSessionInternal(existing);
           }
 
           const now = yield* nowIso;
@@ -224,6 +243,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
           const sessionScope = yield* Scope.make("sequential");
 
           const state: SessionState = {
+            threadId: input.threadId,
             session,
             cwd,
             model: input.modelSelection?.model,
@@ -231,6 +251,8 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             conversationId,
             process: undefined,
             pumpFiber: undefined,
+            spawnGeneration: 0,
+            stopped: false,
             activeTurn: undefined,
             scope: sessionScope,
           };
@@ -246,17 +268,13 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
         threadId,
         Effect.gen(function* () {
           const state = sessions.get(threadId);
-          if (state) {
-            yield* stopSessionInternal(threadId, state);
-            sessions.delete(threadId);
-            yield* offerRuntimeEvent({
-              type: "session.exited",
-              ...(yield* makeEventStamp()),
+          if (!state || state.stopped) {
+            return yield* new ProviderAdapterSessionNotFoundError({
               provider: PROVIDER,
               threadId,
-              payload: { exitKind: "graceful" },
             });
           }
+          yield* stopSessionInternal(state);
         }),
       );
 
@@ -269,7 +287,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
           input.threadId,
           Effect.gen(function* () {
             const state = sessions.get(input.threadId);
-            if (!state) {
+            if (!state || state.stopped) {
               return yield* new ProviderAdapterSessionNotFoundError({
                 provider: PROVIDER,
                 threadId: input.threadId,
@@ -287,6 +305,9 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             let agyProcess = state.process;
             let pumpFiber = state.pumpFiber;
             if (!agyProcess) {
+              state.spawnGeneration += 1;
+              const currentGeneration = state.spawnGeneration;
+
               agyProcess = yield* makeAgyProcess({
                 settings,
                 cwd: state.cwd,
@@ -313,7 +334,14 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                   Effect.gen(function* () {
                     const stamp = yield* makeEventStamp();
                     const currentState = sessions.get(input.threadId);
-                    const activeTurnId = currentState?.activeTurn?.turnId;
+                    if (
+                      !currentState ||
+                      currentState.stopped ||
+                      currentState.spawnGeneration !== currentGeneration
+                    ) {
+                      return;
+                    }
+                    const activeTurnId = currentState.activeTurn?.turnId;
 
                     const context: AgyEventContext = {
                       threadId: input.threadId,
@@ -323,36 +351,34 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
 
                     if (line._tag === "Init") {
                       yield* logNative(input.threadId, "agy.init", line);
-                      if (currentState) {
-                        currentState.conversationId = line.conversationId;
-                        currentState.session = {
-                          ...currentState.session,
-                          updatedAt: stamp.createdAt,
-                          resumeCursor: {
-                            ...(typeof currentState.session.resumeCursor === "object" &&
-                            currentState.session.resumeCursor !== null
-                              ? currentState.session.resumeCursor
-                              : { schemaVersion: AGY_RESUME_VERSION }),
-                            conversationId: line.conversationId,
-                          },
-                        };
-                      }
+                      currentState.conversationId = line.conversationId;
+                      currentState.session = {
+                        ...currentState.session,
+                        updatedAt: stamp.createdAt,
+                        resumeCursor: {
+                          ...(typeof currentState.session.resumeCursor === "object" &&
+                          currentState.session.resumeCursor !== null
+                            ? currentState.session.resumeCursor
+                            : { schemaVersion: AGY_RESUME_VERSION }),
+                          conversationId: line.conversationId,
+                        },
+                      };
                     } else if (line._tag === "Step") {
                       yield* logNative(input.threadId, "agy.step", line);
                       const events = agyStepToRuntimeEvents(context, line.step);
                       for (const event of events) {
                         const eventStamp = yield* makeEventStamp();
-                        yield* offerRuntimeEvent({ ...event, ...eventStamp } as any);
+                        yield* offerRuntimeEvent({ ...event, ...eventStamp });
                       }
                     } else if (line._tag === "Result") {
                       yield* logNative(input.threadId, "agy.result", line);
                       const events = agyResultToRuntimeEvents(context, line.result);
                       for (const event of events) {
                         const eventStamp = yield* makeEventStamp();
-                        yield* offerRuntimeEvent({ ...event, ...eventStamp } as any);
+                        yield* offerRuntimeEvent({ ...event, ...eventStamp });
                       }
 
-                      if (currentState?.activeTurn) {
+                      if (currentState.activeTurn) {
                         yield* Deferred.succeed(currentState.activeTurn.deferred, undefined);
                       }
                     }
@@ -362,6 +388,13 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                 Effect.catchTag("AgyProcessError", (cause) =>
                   Effect.gen(function* () {
                     const currentState = sessions.get(input.threadId);
+                    if (
+                      !currentState ||
+                      currentState.stopped ||
+                      currentState.spawnGeneration !== currentGeneration
+                    ) {
+                      return;
+                    }
                     const stamp = yield* makeEventStamp();
 
                     yield* offerRuntimeEvent({
@@ -369,7 +402,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                       ...stamp,
                       provider: PROVIDER,
                       threadId: input.threadId,
-                      ...(currentState?.activeTurn
+                      ...(currentState.activeTurn
                         ? { turnId: currentState.activeTurn.turnId }
                         : {}),
                       payload: {
@@ -381,7 +414,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                       },
                     });
 
-                    if (currentState?.activeTurn) {
+                    if (currentState.activeTurn) {
                       yield* Deferred.fail(
                         currentState.activeTurn.deferred,
                         new ProviderAdapterProcessError({
@@ -397,28 +430,26 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                 Effect.onExit((exit) =>
                   Effect.gen(function* () {
                     const currentState = sessions.get(input.threadId);
-                    if (currentState) {
-                      if (currentState.activeTurn) {
-                        yield* Deferred.fail(
-                          currentState.activeTurn.deferred,
-                          new ProviderAdapterProcessError({
-                            provider: PROVIDER,
-                            threadId: input.threadId,
-                            detail: "Pump exited",
-                            cause: Exit.isFailure(exit) ? exit.cause : undefined,
-                          }),
-                        ).pipe(Effect.ignore);
-                      }
-                      yield* offerRuntimeEvent({
-                        type: "session.exited",
-                        ...(yield* makeEventStamp()),
-                        provider: PROVIDER,
-                        threadId: input.threadId,
-                        payload: { exitKind: Exit.isSuccess(exit) ? "graceful" : "error" },
-                      });
-                      currentState.process = undefined;
-                      currentState.pumpFiber = undefined;
+                    if (
+                      !currentState ||
+                      currentState.stopped ||
+                      currentState.spawnGeneration !== currentGeneration
+                    ) {
+                      return;
                     }
+                    if (currentState.activeTurn) {
+                      yield* Deferred.fail(
+                        currentState.activeTurn.deferred,
+                        new ProviderAdapterProcessError({
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          detail: "Pump exited",
+                          cause: Exit.isFailure(exit) ? exit.cause : undefined,
+                        }),
+                      ).pipe(Effect.ignore);
+                    }
+                    currentState.process = undefined;
+                    currentState.pumpFiber = undefined;
                   }),
                 ),
                 Effect.forkIn(state.scope),
@@ -462,7 +493,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
               input.threadId,
               Effect.sync(() => {
                 const state = sessions.get(input.threadId);
-                if (state) {
+                if (state && state.activeTurn?.turnId === turnId) {
                   state.activeTurn = undefined;
                 }
               }),
@@ -479,7 +510,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
           threadId,
           Effect.gen(function* () {
             const state = sessions.get(threadId);
-            if (!state) {
+            if (!state || state.stopped) {
               return yield* new ProviderAdapterSessionNotFoundError({
                 provider: PROVIDER,
                 threadId,
@@ -509,6 +540,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             const p = state.process;
             const f = state.pumpFiber;
 
+            state.spawnGeneration += 1;
             state.process = undefined;
             state.pumpFiber = undefined;
             state.activeTurn = undefined;
@@ -556,20 +588,32 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
       );
 
     const hasSession: AgyAdapterShape["hasSession"] = (threadId) =>
-      Effect.sync(() => sessions.has(threadId));
-
-    const listSessions: AgyAdapterShape["listSessions"] = () =>
-      Effect.sync(() => Array.from(sessions.values()).map((state) => state.session));
-
-    const stopAll: AgyAdapterShape["stopAll"] = () =>
-      Effect.gen(function* () {
-        const threadIds = Array.from(sessions.keys());
-        for (const threadId of threadIds) {
-          yield* Effect.ignore(stopSession(threadId));
-        }
+      Effect.sync(() => {
+        const s = sessions.get(threadId);
+        return s !== undefined && !s.stopped;
       });
 
-    yield* Effect.addFinalizer(() => stopAll().pipe(Effect.timeout(2000), Effect.ignore));
+    const listSessions: AgyAdapterShape["listSessions"] = () =>
+      Effect.sync(() =>
+        Array.from(sessions.values())
+          .filter((state) => !state.stopped)
+          .map((state) => state.session),
+      );
+
+    const stopAll: AgyAdapterShape["stopAll"] = () =>
+      Effect.forEach(
+        Array.from(sessions.values()),
+        (state) => withThreadLock(state.threadId, stopSessionInternal(state)),
+        { discard: true },
+      );
+
+    yield* Effect.addFinalizer(() =>
+      stopAll().pipe(
+        Effect.timeout(2000),
+        Effect.ignore,
+        Effect.tap(() => PubSub.shutdown(runtimeEventPubSub)),
+      ),
+    );
 
     return {
       provider: PROVIDER,

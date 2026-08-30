@@ -9,8 +9,6 @@ import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
-import * as Schedule from "effect/Schedule";
-import * as Cause from "effect/Cause";
 
 import {
   AgySettings,
@@ -74,7 +72,7 @@ it.effect("declares model switching unsupported and rejects approvals", () =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("reports no session before start and none after stop", () =>
+it.effect("reports no session before start and none after stop, tearing child down", () =>
   Effect.gen(function* () {
     const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
@@ -87,16 +85,40 @@ it.effect("reports no session before start and none after stop", () =>
     assert.isTrue(yield* adapter.hasSession(threadId));
     assert.strictEqual((yield* adapter.listSessions()).length, 1);
 
-    yield* adapter.stopSession(threadId);
-    assert.isFalse(yield* adapter.hasSession(threadId));
+    // Send a turn to ensure the child process and pump fiber are actively spawned
+    yield* adapter.sendTurn({ threadId, input: "init-turn" });
 
-    // Strengthen existing stopSession test: assert child is killed
-    // Since we don't have the PID, the best we can do is ensure that a session.exited event was emitted
-    // which is already done by the pump's onExit. Wait, stopSessionInternal emits nothing, but the pump emits session.exited.
+    // Collect session.exited event on stop
+    const exitedFiber = yield* Effect.forkChild(
+      Stream.runHead(
+        adapter.streamEvents.pipe(
+          Stream.filter((e) => e.type === "session.exited" && e.threadId === threadId),
+        ),
+      ),
+    );
+
+    yield* adapter.stopSession(threadId);
+
+    const exitedEvent = yield* Fiber.join(exitedFiber);
+    assert.isTrue(exitedEvent._tag === "Some");
+    if (exitedEvent._tag === "Some") {
+      assert.strictEqual(exitedEvent.value.type, "session.exited");
+      assert.strictEqual(
+        (exitedEvent.value.payload as { exitKind?: string })?.exitKind,
+        "graceful",
+      );
+    }
+
+    assert.isFalse(yield* adapter.hasSession(threadId));
+    assert.strictEqual((yield* adapter.listSessions()).length, 0);
+
+    // Stopping again fails with ProviderAdapterSessionNotFoundError
+    const stopAgainError = yield* Effect.flip(adapter.stopSession(threadId));
+    assert.strictEqual(stopAgainError._tag, "ProviderAdapterSessionNotFoundError");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("handles a second turn on the same session", () =>
+it.effect("handles a second turn on the same session across a single subscription", () =>
   Effect.gen(function* () {
     const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
@@ -106,25 +128,39 @@ it.effect("handles a second turn on the same session", () =>
 
     yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
 
-    const collectTurn = (turnStr: string) =>
-      Effect.gen(function* () {
-        const collected = yield* Effect.forkChild(
-          Stream.runCollect(
-            adapter.streamEvents.pipe(
-              Stream.filter((e) => e.threadId === threadId && e.type === "turn.completed"),
-              Stream.take(1),
-            ),
-          ),
-        );
-        yield* adapter.sendTurn({ threadId, input: turnStr });
-        return Array.from(yield* Fiber.join(collected));
-      });
+    let completedTurns = 0;
+    const collectedEventsFiber = yield* Effect.forkChild(
+      Stream.runCollect(
+        adapter.streamEvents.pipe(
+          Stream.filter((e) => e.threadId === threadId),
+          Stream.takeUntil((e) => {
+            if (e.type === "turn.completed") {
+              completedTurns += 1;
+              return completedTurns === 2;
+            }
+            return false;
+          }),
+        ),
+      ),
+    );
 
-    const events1 = yield* collectTurn("first");
-    assert.strictEqual(events1.length, 1);
+    yield* adapter.sendTurn({ threadId, input: "first" });
+    yield* adapter.sendTurn({ threadId, input: "second" });
 
-    const events2 = yield* collectTurn("second");
-    assert.strictEqual(events2.length, 1);
+    const allEvents = Array.from(
+      yield* Fiber.join(collectedEventsFiber),
+    ) as Array<ProviderRuntimeEvent>;
+    const turnCompletedEvents = allEvents.filter((e) => e.type === "turn.completed");
+    assert.strictEqual(turnCompletedEvents.length, 2);
+
+    const turnStartedEvents = allEvents.filter((e) => e.type === "turn.started");
+    assert.strictEqual(turnStartedEvents.length, 2);
+
+    // Verify step indexing monotonically increments on the same process
+    const deltas = allEvents.filter((e) => e.type === "content.delta");
+    const deltaItems = deltas.map((e) => e.itemId);
+    assert.isTrue(deltaItems.some((id) => id === "agy-step-1"));
+    assert.isTrue(deltaItems.some((id) => id === "agy-step-2"));
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
@@ -134,7 +170,7 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped();
 
-    // We create a mock script that emits 'init' then hangs for 500ms before exiting.
+    // Script emits 'init', an active step, then hangs for 500ms
     const crashScript =
       process.platform === "win32" ? NodePath.join(dir, "hang.cmd") : NodePath.join(dir, "hang.sh");
 
@@ -143,6 +179,7 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
       nodeFile,
       `
       console.log(JSON.stringify({event:"init",conversation_id:"mock-conv-2",init:{runtime_mode:"full-access"}}));
+      console.log(JSON.stringify({event:"step_update",step_update:{conversation_id:"mock-conv-2",step_index:1,state:"ACTIVE",step_type:"agent_response",text_delta:"working..."}}));
       setTimeout(() => process.exit(0), 500);
     `,
     );
@@ -164,69 +201,72 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
       },
     );
 
-    yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
-
-    // First turn will hang for 500ms
-    const sendFiber = yield* Effect.forkChild(adapter.sendTurn({ threadId, input: "hang" }));
-
-    // Verify conversationId was captured by polling the observable condition
-    const waitForConversationId = Effect.retry(
-      Effect.suspend(() =>
-        Effect.gen(function* () {
-          const sessions = yield* adapter.listSessions();
-          if (
-            sessions[0]?.resumeCursor &&
-            typeof sessions[0].resumeCursor === "object" &&
-            "conversationId" in sessions[0].resumeCursor &&
-            sessions[0].resumeCursor.conversationId === "mock-conv-2"
-          ) {
-            return true;
+    const events: Array<ProviderRuntimeEvent> = [];
+    const eventCollectorFiber = yield* Effect.forkChild(
+      Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          if (event.threadId === threadId) {
+            events.push(event);
           }
-          return yield* Effect.fail("not yet");
         }),
       ),
-      { schedule: Schedule.spaced(10).pipe(Schedule.andThen(Schedule.recurs(100))) },
     );
-    yield* waitForConversationId;
 
-    // Verify conversationId was captured
+    yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
+
+    // Wait event-driven for the active step delta to arrive before interrupting
+    const waitForTurn1Delta = Stream.runHead(
+      adapter.streamEvents.pipe(
+        Stream.filter((e) => e.type === "content.delta" && e.threadId === threadId),
+      ),
+    );
+    const delta1Fiber = yield* Effect.forkChild(waitForTurn1Delta);
+    const sendFiber1 = yield* Effect.forkChild(adapter.sendTurn({ threadId, input: "hang1" }));
+    yield* Fiber.join(delta1Fiber);
+
+    // Verify conversationId was captured on session state
     const sessions = yield* adapter.listSessions();
     assert.strictEqual(sessions.length, 1);
     const resumeCursor = sessions[0]!.resumeCursor as { schemaVersion: 1; conversationId?: string };
     assert.strictEqual(resumeCursor.conversationId, "mock-conv-2");
 
-    const logFile = "D:/D drive AI work/t3code/apps/server/test-debug.log";
-    const appendLog = (msg: string) => {
-      require("fs").appendFileSync(logFile, msg + "\\n");
-    };
-    appendLog("Interrupting turn 1");
-    // Interrupt the turn
+    // Interrupt turn 1
     yield* adapter.interruptTurn(threadId);
 
-    appendLog("Joining sendFiber 1");
-    // sendTurn should fail due to interruption
-    const sendResult = yield* Effect.exit(Fiber.join(sendFiber));
-    assert.isTrue(sendResult._tag === "Failure");
+    // sendTurn 1 should fail specifically with "Turn interrupted" (not "Pump exited")
+    const err1 = yield* Effect.flip(Fiber.join(sendFiber1));
+    assert.strictEqual(err1._tag, "ProviderAdapterProcessError");
+    if (err1._tag === "ProviderAdapterProcessError") {
+      assert.strictEqual(err1.detail, "Turn interrupted");
+    }
 
-    appendLog("Starting turn 2");
-    // Second turn should be allowed to start without "A turn is already active"
-    // For turn 2, we just need to wait until the turn has actually started before interrupting it.
-    const waitForTurn2Start = Stream.runHead(
+    // Second turn should be allowed to start cleanly
+    const waitForTurn2Delta = Stream.runHead(
       adapter.streamEvents.pipe(
-        Stream.filter((e) => e.type === "turn.started" && e.threadId === threadId),
+        Stream.filter((e) => e.type === "content.delta" && e.threadId === threadId),
       ),
     );
-    const start2Fiber = yield* Effect.forkChild(waitForTurn2Start);
+    const delta2Fiber = yield* Effect.forkChild(waitForTurn2Delta);
     const sendFiber2 = yield* Effect.forkChild(adapter.sendTurn({ threadId, input: "hang2" }));
-    yield* Fiber.join(start2Fiber);
+    yield* Fiber.join(delta2Fiber);
 
-    appendLog("Interrupting turn 2");
+    // Interrupt turn 2
     yield* adapter.interruptTurn(threadId);
 
-    appendLog("Joining sendFiber 2");
-    const sendResult2 = yield* Effect.exit(Fiber.join(sendFiber2));
-    assert.isTrue(sendResult2._tag === "Failure");
-    appendLog("Done with test");
+    // sendTurn 2 should also fail specifically with "Turn interrupted" (not "Pump exited" or stale clobber)
+    const err2 = yield* Effect.flip(Fiber.join(sendFiber2));
+    assert.strictEqual(err2._tag, "ProviderAdapterProcessError");
+    if (err2._tag === "ProviderAdapterProcessError") {
+      assert.strictEqual(err2.detail, "Turn interrupted");
+    }
+
+    yield* Fiber.interrupt(eventCollectorFiber);
+
+    const abortedEvents = events.filter((e) => e.type === "turn.aborted");
+    assert.strictEqual(abortedEvents.length, 2);
+
+    const exitedEvents = events.filter((e) => e.type === "session.exited");
+    assert.strictEqual(exitedEvents.length, 0);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.timeout(5000)),
 );
 
@@ -258,15 +298,10 @@ it.effect("fails sendTurn with ProviderAdapterProcessError on mid-turn process d
 
     yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
 
-    const result = yield* Effect.exit(
-      adapter
-        .sendTurn({ threadId, input: "hello" })
-        .pipe(Effect.catchTag("ProviderAdapterProcessError", (e) => Effect.succeed(e._tag))),
-    );
-
-    assert.isTrue(result._tag === "Success");
-    if (result._tag === "Success") {
-      assert.strictEqual(result.value, "ProviderAdapterProcessError");
+    const err = yield* Effect.flip(adapter.sendTurn({ threadId, input: "hello" }));
+    assert.strictEqual(err._tag, "ProviderAdapterProcessError");
+    if (err._tag === "ProviderAdapterProcessError") {
+      assert.strictEqual(err.detail, "Pump exited");
     }
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.timeout(2000)),
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

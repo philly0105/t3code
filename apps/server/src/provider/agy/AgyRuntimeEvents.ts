@@ -81,14 +81,16 @@ function usageSnapshot(usage: AgyUsage) {
   };
 }
 
+export type Unstamped<T> = T extends unknown ? Omit<T, keyof AgyEventStamp> : never;
+
 export function agyStepToRuntimeEvents(
   context: AgyEventContext,
   step: AgyStep,
-): ReadonlyArray<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> {
+): ReadonlyArray<Unstamped<ProviderRuntimeEvent>> {
   const itemId = RuntimeItemId.make(itemIdForStep(step));
 
   if (step.stepType === "agent_response") {
-    const events: Array<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> = [];
+    const events: Array<Unstamped<ProviderRuntimeEvent>> = [];
     if (step.textDelta !== undefined && step.textDelta.length > 0) {
       events.push({
         type: "content.delta",
@@ -140,9 +142,9 @@ export function agyStepToRuntimeEvents(
 export function agyResultToRuntimeEvents(
   context: AgyEventContext,
   result: AgyResult,
-): ReadonlyArray<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> {
+): ReadonlyArray<Unstamped<ProviderRuntimeEvent>> {
   const failed = result.status === "ERROR";
-  const events: Array<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> = [
+  const events: Array<Unstamped<ProviderRuntimeEvent>> = [
     {
       type: "turn.completed",
       ...base(context),
