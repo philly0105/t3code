@@ -253,7 +253,9 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
     // Interrupt turn 2
     yield* adapter.interruptTurn(threadId);
 
-    // sendTurn 2 should also fail specifically with "Turn interrupted" (not "Pump exited" or stale clobber)
+    // sendTurn 2 should also fail specifically with "Turn interrupted".
+    // Proves that an interrupted turn fails, a follow-up turn on the same session succeeds,
+    // two turn.aborted events are emitted, and no session.exited is emitted.
     const err2 = yield* Effect.flip(Fiber.join(sendFiber2));
     assert.strictEqual(err2._tag, "ProviderAdapterProcessError");
     if (err2._tag === "ProviderAdapterProcessError") {
