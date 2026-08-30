@@ -417,3 +417,17 @@ describe("ServerSettingsPatch string normalization", () => {
     expect(encoded.providers?.codex?.launchArgs).toBe("--strict-config");
   });
 });
+
+it("defaults agy to disabled with an agy binary path", () => {
+  const decoded = Schema.decodeSync(ServerSettings)({});
+  expect(decoded.providers.agy.enabled).toBe(false);
+  expect(decoded.providers.agy.binaryPath).toBe("agy");
+  expect(decoded.providers.agy.customModels).toEqual([]);
+});
+
+it("treats agy as opt-in per driver", () => {
+  const agy = ProviderDriverKind.make("agy");
+  expect(defaultEnabledForDriver(agy)).toBe(false);
+  expect(resolveProviderInstanceEnabled({ driver: agy, config: {} })).toBe(false);
+  expect(resolveProviderInstanceEnabled({ driver: agy, enabled: true, config: {} })).toBe(true);
+});
