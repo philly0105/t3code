@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   directories: new Set<string>(),
   deleted: vi.fn(),
   download: vi.fn(),
+  copy: vi.fn(),
   share: vi.fn(),
   available: vi.fn(),
   uuid: vi.fn(),
@@ -46,8 +47,12 @@ vi.mock("expo-file-system", () => {
     static downloadFileAsync = mocks.download;
     readonly uri: string;
 
-    constructor(directory: Directory, name: string) {
-      this.uri = `${directory.uri}/${encodeURIComponent(name)}`;
+    constructor(source: Directory | string, name?: string) {
+      this.uri = typeof source === "string" ? source : `${source.uri}/${encodeURIComponent(name!)}`;
+    }
+
+    async copy(destination: File): Promise<void> {
+      await mocks.copy(this.uri, destination.uri);
     }
   }
 
@@ -61,7 +66,11 @@ vi.mock("expo-sharing", () => ({
 
 vi.mock("./uuid", () => ({ uuidv4: mocks.uuid }));
 
-import { downloadAndShareAttachment } from "./attachmentDownload";
+import {
+  downloadAndShareAttachment,
+  downloadAttachmentForPreview,
+  shareLocalAttachment,
+} from "./attachmentDownload";
 import { isForegroundHandoffActive } from "./foreground-handoff";
 
 const NOW = 1_787_990_400_000;
@@ -76,10 +85,12 @@ beforeEach(() => {
   mocks.directories.clear();
   mocks.deleted.mockReset();
   mocks.download.mockReset();
+  mocks.copy.mockReset();
   mocks.share.mockReset();
   mocks.available.mockReset();
   mocks.uuid.mockReset();
   mocks.download.mockImplementation(async (_url: string, file: { uri: string }) => file);
+  mocks.copy.mockResolvedValue(undefined);
   mocks.share.mockResolvedValue(undefined);
   mocks.available.mockResolvedValue(true);
   let sequence = 0;
@@ -266,5 +277,110 @@ describe("downloadAndShareAttachment", () => {
     expect(mocks.deleted).not.toHaveBeenCalled();
     share.resolve();
     await first;
+  });
+});
+
+describe("attachment preview files", () => {
+  it("does not start a native request after cancellation during setup", async () => {
+    const controller = new AbortController();
+    const loading = downloadAttachmentForPreview({ ...input, signal: controller.signal });
+    controller.abort();
+    await expect(loading).resolves.toBeNull();
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.share).not.toHaveBeenCalled();
+  });
+
+  it("downloads for playback without requiring a share sheet and removes the file on close", async () => {
+    mocks.available.mockResolvedValue(false);
+    const file = await downloadAttachmentForPreview({
+      ...input,
+      signal: new AbortController().signal,
+    });
+    expect(file?.uri.endsWith("/report.pdf")).toBe(true);
+    expect(mocks.available).not.toHaveBeenCalled();
+    expect(mocks.deleted).not.toHaveBeenCalled();
+    file?.dispose();
+    file?.dispose();
+    expect(mocks.deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a shared preview after its owner closes", async () => {
+    const opened = Promise.withResolvers<void>();
+    const sharing = Promise.withResolvers<void>();
+    mocks.share.mockImplementationOnce(() => {
+      opened.resolve();
+      return sharing.promise;
+    });
+    const file = await downloadAttachmentForPreview({
+      ...input,
+      signal: new AbortController().signal,
+    });
+    const share = file!.share(new AbortController().signal);
+    await opened.promise;
+    file!.dispose();
+    expect(mocks.deleted).not.toHaveBeenCalled();
+    sharing.resolve();
+    await share;
+    expect(mocks.deleted).not.toHaveBeenCalled();
+    expect(mocks.download).toHaveBeenCalledTimes(1);
+    expect(mocks.copy).not.toHaveBeenCalled();
+  });
+
+  it("does not open a share sheet after a preview is disposed during availability checking", async () => {
+    const checking = Promise.withResolvers<void>();
+    const available = Promise.withResolvers<boolean>();
+    mocks.available.mockImplementation(() => {
+      checking.resolve();
+      return available.promise;
+    });
+    const file = await downloadAttachmentForPreview({
+      ...input,
+      signal: new AbortController().signal,
+    });
+    const share = file!.share(new AbortController().signal);
+    await checking.promise;
+    file!.dispose();
+    available.resolve(true);
+    await share;
+    expect(mocks.share).not.toHaveBeenCalled();
+    expect(mocks.deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies a local original before sharing without downloading or deleting the source", async () => {
+    const uri = "file:///documents/draft/report.pdf";
+    await shareLocalAttachment({
+      uri,
+      attachment: input.attachment,
+      signal: new AbortController().signal,
+    });
+    expect(mocks.copy).toHaveBeenCalledWith(
+      uri,
+      expect.stringMatching(/^file:\/\/\/cache\/.+\/report\.pdf$/),
+    );
+    expect(mocks.share).toHaveBeenCalledWith(mocks.copy.mock.calls[0]![1], expect.any(Object));
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.deleted).not.toHaveBeenCalled();
+  });
+
+  it("waits for a local copy to finish before cleaning up a canceled share", async () => {
+    const copying = Promise.withResolvers<void>();
+    const copied = Promise.withResolvers<void>();
+    mocks.copy.mockImplementation(() => {
+      copying.resolve();
+      return copied.promise;
+    });
+    const controller = new AbortController();
+    const task = shareLocalAttachment({
+      uri: "file:///documents/draft/report.pdf",
+      attachment: input.attachment,
+      signal: controller.signal,
+    });
+    await copying.promise;
+    controller.abort();
+    expect(mocks.deleted).not.toHaveBeenCalled();
+    copied.resolve();
+    await task;
+    expect(mocks.share).not.toHaveBeenCalled();
+    expect(mocks.deleted).toHaveBeenCalledTimes(1);
   });
 });

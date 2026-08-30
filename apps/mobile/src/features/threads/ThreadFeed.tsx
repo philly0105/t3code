@@ -23,6 +23,7 @@ import {
   splitCodexArtifactTemplateMarkdown,
 } from "@t3tools/client-runtime/codex-markdown-directives";
 import { CHAT_LIST_ANCHOR_OFFSET, resolveChatListAnchoredEndSpace } from "@t3tools/shared/chatList";
+import { videoMimeType } from "@t3tools/shared/video";
 import { SymbolView, type AppSymbolName } from "../../components/AppSymbol";
 import { HeaderHeightContext } from "@react-navigation/elements";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
@@ -88,6 +89,8 @@ import {
 } from "../../native/SelectableMarkdownText";
 
 import { AppText as Text } from "../../components/AppText";
+import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
+import { VideoAttachmentTile } from "../../components/VideoAttachmentTile";
 import { CopyTextButton } from "../../components/CopyTextButton";
 import {
   parseReviewCommentMessageSegments,
@@ -246,6 +249,7 @@ function isFileAttachment(attachment: ChatAttachment): attachment is ChatFileAtt
 function MessageAttachmentFile(props: {
   readonly environmentId: EnvironmentId;
   readonly attachment: ChatFileAttachment;
+  readonly onPressVideo: (attachment: ChatFileAttachment) => void;
 }) {
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
     reportFailure: false,
@@ -267,6 +271,18 @@ function MessageAttachmentFile(props: {
       };
     }, [props.environmentId, attachment.id, httpBaseUrl]),
   );
+
+  if (videoMimeType(attachment) !== null) {
+    return (
+      <VideoAttachmentTile
+        name={attachment.name}
+        disabled={httpBaseUrl === null}
+        onPress={() => props.onPressVideo(attachment)}
+        className="my-1 rounded-2xl"
+        style={{ width: 224, maxWidth: "100%", aspectRatio: 16 / 9 }}
+      />
+    );
+  }
 
   return (
     <Pressable
@@ -1227,6 +1243,7 @@ function renderFeedEntry(
     readonly onToggleWorkRow: (rowId: string) => void;
     readonly onToggleTurnFold: (turnId: TurnId) => void;
     readonly onPressImage: (uri: string, headers?: Record<string, string>) => void;
+    readonly onPressVideo: (attachment: ChatFileAttachment) => void;
     readonly onMarkdownLinkPress: (href: string) => void;
     readonly renderMarkdownImage: MarkdownImageRenderer;
     readonly iconSubtleColor: string | import("react-native").ColorValue;
@@ -1344,6 +1361,7 @@ function renderFeedEntry(
                   key={attachment.id}
                   environmentId={props.environmentId}
                   attachment={attachment}
+                  onPressVideo={props.onPressVideo}
                 />
               ) : (
                 <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
@@ -1404,6 +1422,7 @@ function renderFeedEntry(
               key={attachment.id}
               environmentId={props.environmentId}
               attachment={attachment}
+              onPressVideo={props.onPressVideo}
             />
           ) : (
             <MessageAttachmentUnknown key={attachment.id} name={attachment.name} />
@@ -1769,6 +1788,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     uri: string;
     headers?: Record<string, string>;
   } | null>(null);
+  const [expandedVideo, setExpandedVideo] = useState<VideoPreviewSource | null>(null);
+  useEffect(() => {
+    setExpandedVideo(null);
+  }, [props.environmentId, props.threadId, props.contentPresentation.kind]);
   const horizontalPadding = props.layoutVariant === "split" ? 20 : 16;
   const contentHorizontalPadding = deriveCenteredContentHorizontalPadding({
     viewportWidth,
@@ -2243,6 +2266,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const onPressImage = useCallback((uri: string, headers?: Record<string, string>) => {
     setExpandedImage({ uri, headers });
   }, []);
+  const onPressVideo = useCallback(
+    (attachment: ChatFileAttachment) => {
+      setExpandedVideo({ type: "remote", environmentId: props.environmentId, attachment });
+    },
+    [props.environmentId],
+  );
 
   // Rows whose height is known before they ever render. Without this, every
   // row above the viewport is assumed to be estimatedItemSize tall, and
@@ -2292,6 +2321,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           onToggleWorkRow,
           onToggleTurnFold,
           onPressImage,
+          onPressVideo,
           onMarkdownLinkPress,
           renderMarkdownImage,
           iconSubtleColor,
@@ -2320,6 +2350,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onCopyWorkRow,
       onMarkdownLinkPress,
       onPressImage,
+      onPressVideo,
       onToggleTurnFold,
       onToggleWorkGroup,
       onToggleWorkRow,
@@ -2503,6 +2534,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         ) : null}
       </View>
 
+      <VideoPreviewModal source={expandedVideo} onRequestClose={() => setExpandedVideo(null)} />
       <ImageViewing
         images={
           expandedImage

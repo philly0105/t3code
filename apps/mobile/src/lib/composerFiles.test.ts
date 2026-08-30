@@ -71,6 +71,7 @@ import {
   pickComposerFiles,
   removePersistedComposerAttachmentFile,
 } from "./composerImages";
+import { retainComposerAttachmentFile } from "./composerAttachmentFiles";
 
 describe("pickComposerFiles", () => {
   beforeEach(() => {
@@ -367,6 +368,26 @@ describe("pickComposerFiles", () => {
     expect(mocks.delete.mock.calls).toEqual([
       [`${mocks.documentUri}/t3-composer-attachments/${fileName}`],
     ]);
+  });
+
+  it("rechecks preview ownership after loading the native filesystem", async () => {
+    const fileName = "33333333-3333-4333-8333-333333333333-recording.mp4";
+    const oldUri = `file:///private/var/mobile/Containers/Data/Application/11111111-1111-4111-8111-111111111111/Documents/t3-composer-attachments/${fileName}`;
+    mocks.documentUri =
+      "file:///var/mobile/Containers/Data/Application/22222222-2222-4222-8222-222222222222/Documents";
+    const currentUri = `${mocks.documentUri}/t3-composer-attachments/${fileName}`;
+
+    const deleting = removePersistedComposerAttachmentFile(oldUri);
+    const release = retainComposerAttachmentFile(currentUri, () => {});
+    try {
+      await deleting;
+      expect(mocks.delete).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+
+    await removePersistedComposerAttachmentFile(oldUri);
+    expect(mocks.delete.mock.calls).toEqual([[currentUri]]);
   });
 
   it("copies an open-in-place source from its actual container without rebasing it", async () => {

@@ -14,6 +14,7 @@ import type { PickMultipleFilesResult } from "expo-file-system";
 import { estimateBase64ByteSize } from "./base64";
 import {
   COMPOSER_ATTACHMENT_DIRECTORY,
+  isComposerAttachmentFileRetained,
   resolveOwnedComposerAttachmentFileUri,
 } from "./composerAttachmentFiles";
 import { beginForegroundHandoff } from "./foreground-handoff";
@@ -145,7 +146,7 @@ export async function removePersistedComposerAttachmentFile(uri: string): Promis
   try {
     const { File, Paths } = await import("expo-file-system");
     const ownedUri = resolveOwnedComposerAttachmentFileUri(uri, Paths.document.uri);
-    if (ownedUri === null) {
+    if (ownedUri === null || isComposerAttachmentFileRetained(ownedUri)) {
       return;
     }
     const file = new File(ownedUri);
