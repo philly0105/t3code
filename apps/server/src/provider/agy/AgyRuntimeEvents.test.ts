@@ -128,4 +128,15 @@ describe("agyResultToRuntimeEvents", () => {
     expect(events.map((event) => event.type)).toEqual(["turn.completed", "runtime.error"]);
     expect(events[0]?.payload).toMatchObject({ state: "failed", errorMessage: "boom" });
   });
+
+  it("falls back to default message when error result has empty errorMessage", () => {
+    const events = agyResultToRuntimeEvents(
+      context,
+      result({ status: "ERROR", response: "", errorMessage: "" }),
+    );
+    expect(events.map((event) => event.type)).toEqual(["turn.completed", "runtime.error"]);
+    expect(events[1]?.payload).toMatchObject({
+      message: "Antigravity CLI reported an error.",
+    });
+  });
 });

@@ -158,10 +158,12 @@ export function agyResultToRuntimeEvents(
   ];
 
   if (failed) {
+    const fallback = "Antigravity CLI reported an error.";
+    const message = result.errorMessage?.trim() ? result.errorMessage : fallback;
     events.push({
       type: "runtime.error",
       ...base(context),
-      payload: { message: result.errorMessage ?? "Antigravity CLI reported an error." },
+      payload: { message },
     });
   }
 
