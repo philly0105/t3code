@@ -249,6 +249,109 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  it.effect("skips Agy when selecting a fallback text generation provider", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+      // Disable codex to force fallback
+      yield* serverSettings.updateSettings({
+        textGenerationModelSelection: {
+          instanceId: ProviderInstanceId.make("agy"),
+          model: "gemini-3.7-flash-high",
+        },
+        providers: {
+          codex: { enabled: false },
+          claudeAgent: { enabled: false },
+          opencode: { enabled: false },
+          grok: { enabled: false },
+          agy: { enabled: true },
+          cursor: { enabled: true },
+        },
+      });
+
+      const next = yield* serverSettings.getSettings;
+      // It should heal the explicitly selected Agy back to a valid fallback, picking cursor.
+      assert.equal(next.textGenerationModelSelection.instanceId, ProviderInstanceId.make("cursor"));
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect(
+    "falls back to an enabled custom instance when all legacy capable providers are disabled",
+    () =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+        yield* serverSettings.updateSettings({
+          textGenerationModelSelection: {
+            instanceId: ProviderInstanceId.make("agy"),
+            model: "gemini-3.7-flash-high",
+          },
+          providers: {
+            codex: { enabled: false },
+            claudeAgent: { enabled: false },
+            opencode: { enabled: false },
+            grok: { enabled: false },
+            agy: { enabled: true },
+            cursor: { enabled: false },
+          },
+          providerInstances: {
+            [ProviderInstanceId.make("cursor_personal")]: {
+              driver: ProviderDriverKind.make("cursor"),
+              enabled: true,
+              config: {},
+            },
+          },
+        });
+
+        const next = yield* serverSettings.getSettings;
+        assert.equal(
+          next.textGenerationModelSelection.instanceId,
+          ProviderInstanceId.make("cursor_personal"),
+        );
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect(
+    "honors explicit disabled default-slot override over enabled legacy mirror during fallback",
+    () =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+
+        yield* serverSettings.updateSettings({
+          textGenerationModelSelection: {
+            instanceId: ProviderInstanceId.make("agy"),
+            model: "gemini-3.7-flash-high",
+          },
+          providers: {
+            codex: { enabled: true },
+            claudeAgent: { enabled: false },
+            opencode: { enabled: false },
+            grok: { enabled: false },
+            agy: { enabled: true },
+            cursor: { enabled: false },
+          },
+          providerInstances: {
+            [ProviderInstanceId.make("codex")]: {
+              driver: ProviderDriverKind.make("codex"),
+              enabled: false,
+              config: {},
+            },
+            [ProviderInstanceId.make("cursor_personal")]: {
+              driver: ProviderDriverKind.make("cursor"),
+              enabled: true,
+              config: {},
+            },
+          },
+        });
+
+        const next = yield* serverSettings.getSettings;
+        assert.equal(
+          next.textGenerationModelSelection.instanceId,
+          ProviderInstanceId.make("cursor_personal"),
+        );
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
   it.effect("buffers changes after a subscription is acquired but before it is consumed", () =>
     Effect.scoped(
       Effect.gen(function* () {

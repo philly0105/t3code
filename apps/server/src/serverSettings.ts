@@ -23,6 +23,8 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
+  isTextGenerationCapableProvider,
+  resolveProviderInstanceEnabled,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -293,28 +295,71 @@ function restoreUsedProviders(
 }
 
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  return isModelSelectionProviderEnabled(settings, settings.textGenerationModelSelection)
-    ? settings
-    : fallbackTextGenerationProvider(settings);
+  const selection = settings.textGenerationModelSelection;
+  const isEnabled = isModelSelectionProviderEnabled(settings, selection);
+
+  let isCapable = false;
+  if (isEnabled) {
+    const instanceConfig = settings.providerInstances[selection.instanceId];
+    const driverKind = instanceConfig
+      ? instanceConfig.driver
+      : ProviderDriverKind.make(selection.instanceId);
+    isCapable = isTextGenerationCapableProvider(driverKind);
+  }
+
+  return isEnabled && isCapable ? settings : fallbackTextGenerationProvider(settings);
 }
 
 function fallbackTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  const fallbackEntry = Object.entries(settings.providers).find(([, provider]) => provider.enabled);
-  const fallback = fallbackEntry ? ProviderDriverKind.make(fallbackEntry[0]) : undefined;
-  if (!fallback) {
-    return settings;
+  let fallbackInstanceId: string | undefined;
+  let fallbackDriver: ProviderDriverKind | undefined;
+
+  for (const [legacyId, legacyProvider] of Object.entries(settings.providers)) {
+    const explicitInstance = settings.providerInstances[ProviderInstanceId.make(legacyId)];
+    const isEnabled = explicitInstance
+      ? resolveProviderInstanceEnabled(explicitInstance)
+      : legacyProvider.enabled;
+    const driverKind = explicitInstance
+      ? explicitInstance.driver
+      : ProviderDriverKind.make(legacyId);
+
+    if (isEnabled && isTextGenerationCapableProvider(driverKind)) {
+      fallbackInstanceId = legacyId;
+      fallbackDriver = driverKind;
+      break;
+    }
   }
 
-  return {
-    ...settings,
-    textGenerationModelSelection: {
-      instanceId: ProviderInstanceId.make(fallback),
-      model:
-        DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback] ??
-        DEFAULT_MODEL_BY_PROVIDER[fallback] ??
-        DEFAULT_TEXT_GENERATION_MODEL,
-    } satisfies ModelSelection,
-  };
+  if (!fallbackInstanceId) {
+    for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
+      if (Object.prototype.hasOwnProperty.call(settings.providers, instanceId)) {
+        continue;
+      }
+      if (
+        resolveProviderInstanceEnabled(instance) &&
+        isTextGenerationCapableProvider(instance.driver)
+      ) {
+        fallbackInstanceId = instanceId;
+        fallbackDriver = instance.driver;
+        break;
+      }
+    }
+  }
+
+  if (fallbackInstanceId && fallbackDriver) {
+    return {
+      ...settings,
+      textGenerationModelSelection: {
+        instanceId: ProviderInstanceId.make(fallbackInstanceId),
+        model:
+          DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallbackDriver] ??
+          DEFAULT_MODEL_BY_PROVIDER[fallbackDriver] ??
+          DEFAULT_TEXT_GENERATION_MODEL,
+      } satisfies ModelSelection,
+    };
+  }
+
+  return settings;
 }
 
 // Values under these keys are compared as a whole — never stripped field-by-field.

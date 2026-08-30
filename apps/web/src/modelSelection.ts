@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   type ServerSettingsPatch,
+  isTextGenerationCapableProvider,
 } from "@t3tools/contracts";
 import {
   createModelSelection,
@@ -384,7 +385,9 @@ export function resolveAppModelSelectionState(
     instanceId: DEFAULT_TEXT_GENERATION_INSTANCE_ID,
     model: DEFAULT_TEXT_GENERATION_MODEL,
   };
-  const entries = deriveProviderInstanceEntries(providers);
+  const entries = deriveProviderInstanceEntries(providers).filter((entry) =>
+    isTextGenerationCapableProvider(entry.driverKind),
+  );
   const selectedEntry = entries.find(
     (entry) => entry.instanceId === selection.instanceId && entry.enabled && entry.isAvailable,
   );
@@ -413,20 +416,10 @@ export function resolveAppModelSelectionState(
     return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
   }
 
-  const provider = resolveSelectableProvider(providers, null);
-  const keptSelectedProvider = false;
-
-  // When the provider changed due to fallback (e.g. selected provider was disabled),
-  // don't carry over the old provider's model — use the fallback provider's default.
-  const selectedModel = keptSelectedProvider ? selection.model : null;
-  const model = resolveAppModelSelection(provider, settings, providers, selectedModel);
-  const { modelOptionsForDispatch } = getComposerProviderState({
-    provider,
-    model,
-    models: getProviderModels(providers, provider),
-    modelOptions: keptSelectedProvider ? selection.options : undefined,
-    planModeEnabled: settings.planModeEnabled,
-  });
-
-  return createModelSelection(defaultInstanceIdForDriver(provider), model, modelOptionsForDispatch);
+  // If no valid text generation provider is enabled, fall back to the default
+  return createModelSelection(
+    DEFAULT_TEXT_GENERATION_INSTANCE_ID,
+    DEFAULT_TEXT_GENERATION_MODEL,
+    [],
+  );
 }

@@ -616,6 +616,37 @@ describe("instance-scoped model selection", () => {
       model: "openai/gpt-5.5",
     });
   });
+
+  it("excludes Agy from text generation fallback candidates", () => {
+    const providers = [
+      {
+        ...provider({ instanceId: "codex", provider: ProviderDriverKind.make("codex") }),
+        enabled: false,
+      },
+      provider({
+        instanceId: "agy",
+        provider: ProviderDriverKind.make("agy"),
+        models: ["gemini-3.7-flash-high"],
+      }),
+      provider({
+        instanceId: "cursor",
+        provider: ProviderDriverKind.make("cursor"),
+        models: ["composer-2"],
+      }),
+    ];
+    const settings: UnifiedSettings = {
+      ...settingsWithProviderInstances(),
+      textGenerationModelSelection: {
+        instanceId: ProviderInstanceId.make("agy"),
+        model: "gemini-3.7-flash-high",
+      },
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers)).toEqual({
+      instanceId: ProviderInstanceId.make("cursor"),
+      model: "composer-2",
+    });
+  });
 });
 
 describe("withoutPlanAgentSelection", () => {

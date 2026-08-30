@@ -229,6 +229,48 @@ describe("serverSettings helpers", () => {
     expect(settings.sourceControlWriterModelSelection).toBe(sourceControlWriterModelSelection);
   });
 
+  it("falls back from a non-capable source control writer provider", () => {
+    const agyInstanceId = ProviderInstanceId.make("agy_writer");
+    const agySelection = createModelSelection(agyInstanceId, "gemini-3.7-flash-high");
+
+    const settingsWithAgy = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [agyInstanceId]: {
+          driver: ProviderDriverKind.make("agy"),
+          enabled: true,
+          config: {},
+        },
+      },
+      sourceControlWriterModelSelection: agySelection,
+    };
+
+    // agy is enabled, but not text-generation capable
+    expect(isModelSelectionProviderEnabled(settingsWithAgy, agySelection)).toBe(true);
+    expect(resolveSourceControlWriterModelSelection(settingsWithAgy)).toBe(
+      settingsWithAgy.textGenerationModelSelection,
+    );
+
+    const codexInstanceId = ProviderInstanceId.make("codex_writer");
+    const codexSelection = createModelSelection(codexInstanceId, "gpt-5.4-mini");
+
+    const settingsWithCodex = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [codexInstanceId]: {
+          driver: ProviderDriverKind.make("codex"),
+          enabled: true,
+          config: {},
+        },
+      },
+      sourceControlWriterModelSelection: codexSelection,
+    };
+
+    // codex is capable, so it remains selected
+    expect(isModelSelectionProviderEnabled(settingsWithCodex, codexSelection)).toBe(true);
+    expect(resolveSourceControlWriterModelSelection(settingsWithCodex)).toBe(codexSelection);
+  });
+
   it("falls back from an unavailable source control writer provider", () => {
     const instanceId = ProviderInstanceId.make("missing_writer");
     const sourceControlWriterModelSelection = createModelSelection(instanceId, "missing-model");

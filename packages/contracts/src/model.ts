@@ -225,3 +225,12 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [GROK_DRIVER_KIND]: "Grok",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
 };
+
+/**
+ * Returns true if the given provider driver supports text generation capabilities
+ * (such as writing change descriptions or threads). Providers like Agy which
+ * omit the textGeneration closure return false.
+ */
+export function isTextGenerationCapableProvider(driverKind: ProviderDriverKind): boolean {
+  return driverKind !== AGY_DRIVER_KIND;
+}

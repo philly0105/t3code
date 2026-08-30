@@ -3,10 +3,11 @@ import {
   isProviderAvailable,
   resolveProviderInstanceEnabled,
   type ModelSelection,
-  type ProviderDriverKind,
+  ProviderDriverKind,
   type ServerProvider,
   ServerSettings,
   type ServerSettingsPatch,
+  isTextGenerationCapableProvider,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -54,6 +55,15 @@ export function resolveSourceControlWriterModelSelection(
   if (!selection || !isModelSelectionProviderEnabled(settings, selection)) {
     return settings.textGenerationModelSelection;
   }
+
+  const instanceConfig = settings.providerInstances[selection.instanceId];
+  const driverKind = instanceConfig
+    ? instanceConfig.driver
+    : ProviderDriverKind.make(selection.instanceId);
+  if (!isTextGenerationCapableProvider(driverKind)) {
+    return settings.textGenerationModelSelection;
+  }
+
   if (providers === undefined) {
     return selection;
   }
