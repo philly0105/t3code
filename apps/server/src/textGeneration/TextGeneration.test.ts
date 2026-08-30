@@ -26,7 +26,7 @@ const makeStubTextGeneration = (
 
 const makeStubInstance = (
   instanceId: ProviderInstanceId,
-  textGeneration: TextGeneration.TextGeneration["Service"],
+  textGeneration?: TextGeneration.TextGeneration["Service"],
 ): ProviderInstance =>
   ({
     instanceId,
@@ -39,7 +39,7 @@ const makeStubInstance = (
     enabled: true,
     snapshot: {} as ProviderInstance["snapshot"],
     adapter: {} as ProviderInstance["adapter"],
-    textGeneration,
+    ...(textGeneration ? { textGeneration } : {}),
   }) satisfies ProviderInstance;
 
 const makeStubRegistry = (
@@ -117,5 +117,30 @@ describe("makeTextGenerationFromRegistry", () => {
         expect(result.failure.detail).toContain("missing_instance");
       }
     }),
+  );
+
+  it.effect(
+    "fails with TextGenerationError when the instance does not support text generation",
+    () =>
+      Effect.gen(function* () {
+        const agyId = ProviderInstanceId.make("agy");
+        const agy = makeStubInstance(agyId);
+        const tg = TextGeneration.makeTextGenerationFromRegistry(makeStubRegistry([agy]));
+
+        const result = yield* tg
+          .generateBranchName({
+            cwd: process.cwd(),
+            message: "anything",
+            modelSelection: createModelSelection(ProviderInstanceId.make("agy"), "agy-model"),
+          })
+          .pipe(Effect.result);
+
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("TextGenerationError");
+          expect(result.failure.operation).toBe("generateBranchName");
+          expect(result.failure.detail).toContain("does not support text generation");
+        }
+      }),
   );
 });

@@ -155,6 +155,6 @@ export const AgyDriver: ProviderDriver<AgySettings, AgyDriverEnv> = {
         enabled,
         snapshot,
         adapter,
-      } as unknown as ProviderInstance;
+      };
     }),
 };

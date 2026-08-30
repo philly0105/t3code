@@ -912,7 +912,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               streamChanges: Stream.empty,
             },
             adapter: {} as ProviderInstance["adapter"],
-            textGeneration: {} as ProviderInstance["textGeneration"],
+            textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1033,7 +1033,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 streamChanges: Stream.empty,
               },
               adapter: {} as ProviderInstance["adapter"],
-              textGeneration: {} as ProviderInstance["textGeneration"],
+              textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
             },
             {
               instanceId: openCodeInstanceId,
@@ -1056,7 +1056,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 streamChanges: Stream.empty,
               },
               adapter: {} as ProviderInstance["adapter"],
-              textGeneration: {} as ProviderInstance["textGeneration"],
+              textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
             },
           ] satisfies ReadonlyArray<ProviderInstance>;
           const instanceRegistryLayer = Layer.succeed(
@@ -1177,7 +1177,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               streamChanges: Stream.fromPubSub(changes),
             },
             adapter: {} as ProviderInstance["adapter"],
-            textGeneration: {} as ProviderInstance["textGeneration"],
+            textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1306,7 +1306,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                 streamChanges: Stream.fromPubSub(changes),
               },
               adapter: {} as ProviderInstance["adapter"],
-              textGeneration: {} as ProviderInstance["textGeneration"],
+              textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
             } satisfies ProviderInstance;
             const instanceRegistryLayer = Layer.succeed(
               ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1413,7 +1413,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               streamChanges: Stream.empty,
             },
             adapter: {} as ProviderInstance["adapter"],
-            textGeneration: {} as ProviderInstance["textGeneration"],
+            textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
           } satisfies ProviderInstance;
           const instanceRegistryLayer = Layer.succeed(
             ProviderInstanceRegistry.ProviderInstanceRegistry,
@@ -1506,7 +1506,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
               streamChanges: Stream.empty,
             },
             adapter: {} as ProviderInstance["adapter"],
-            textGeneration: {} as ProviderInstance["textGeneration"],
+            textGeneration: {} as NonNullable<ProviderInstance["textGeneration"]>,
           });
           const codexInstance = makeInstance(codexProvider);
           const claudeInstance = makeInstance(claudeProvider);
@@ -1935,7 +1935,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
                   if (command === "cursor-agent") {
                     cursorSpawned = true;
                   }
-                  const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+                  const joined = args.join(" ");
                   if (joined === "--version") {
                     return {
                       stdout: `${command} 1.0.0\n`,
@@ -2015,7 +2015,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2045,7 +2045,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -2064,7 +2064,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.219\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2095,7 +2095,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.218\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2120,7 +2120,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.169\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2151,7 +2151,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.168\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2194,7 +2194,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
           }).pipe(
             Effect.provide(
               mockSpawnerLayer((args) => {
-                const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+                const joined = args.join(" ");
                 if (joined === "--version") return { stdout: "2.1.111\n", stderr: "", code: 0 };
                 if (joined === "auth status")
                   return {
@@ -2225,7 +2225,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "2.1.110\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2252,7 +2252,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2280,7 +2280,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -2302,7 +2302,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               throw new Error(`Unexpected args: ${joined}`);
             }),
@@ -2321,7 +2321,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2339,7 +2339,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
       it.effect("runs Claude status probes with the configured CLAUDE_CONFIG_DIR", () => {
         const claudeConfigDir = "/tmp/t3code-claude-home";
         const recorded = recordingMockSpawnerLayer((args) => {
-          const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+          const joined = args.join(" ");
           if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
           if (joined === "auth status")
             return {
@@ -2396,7 +2396,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2443,7 +2443,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2470,7 +2470,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {
@@ -2511,7 +2511,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version")
                 return {
                   stdout: "",
@@ -2540,7 +2540,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsModule.layerTest(), Te
         }).pipe(
           Effect.provide(
             mockSpawnerLayer((args) => {
-              const joined = args.map((a: string) => a.replace(/[\^"]/g, "")).join(" ");
+              const joined = args.join(" ");
               if (joined === "--version") return { stdout: "1.0.0\n", stderr: "", code: 0 };
               if (joined === "auth status")
                 return {

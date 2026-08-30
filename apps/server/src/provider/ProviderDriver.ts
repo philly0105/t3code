@@ -3,7 +3,7 @@
  *
  * `ProviderDriver` is a record, not a Context.Service. The thing it produces
  * (`ProviderInstance`) is also a record — three captured closures
- * (`snapshot`, `adapter`, `textGeneration`), an id, and a driver kind. There
+ * (`snapshot`, `adapter`, optional `textGeneration`), an id, and a driver kind. There
  * are intentionally no per-driver Context tags because tags are
  * singleton-per-runtime and we need many instances of the same driver.
  *
@@ -70,7 +70,7 @@ export interface ProviderInstance {
   readonly enabled: boolean;
   readonly snapshot: ServerProviderShape;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
-  readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly textGeneration?: TextGeneration.TextGeneration["Service"];
 }
 
 export interface ProviderContinuationIdentity {
