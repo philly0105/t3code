@@ -133,6 +133,16 @@ describe("deriveProviderInstanceEntries", () => {
     expect(entry?.driverKind).toBe("codex");
     expect(entry?.isDefault).toBe(false);
   });
+
+  it("resolves an Agy snapshot without an explicit displayName to Antigravity", () => {
+    const snapshot = provider({
+      provider: ProviderDriverKind.make("agy"),
+      instanceId: "agy",
+    });
+    const [entry] = deriveProviderInstanceEntries([snapshot]);
+
+    expect(entry?.displayName).toBe("Antigravity");
+  });
 });
 
 describe("deriveProviderEntriesByEnvironment", () => {
