@@ -234,10 +234,11 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             let pumpFiber = state.pumpFiber;
             if (!agyProcess) {
               // Lazily spawn
+              // @ts-expect-error Type ProcessEnv differs slightly depending on how node types are resolved
               agyProcess = yield* makeAgyProcess({
                 settings,
                 cwd: state.cwd,
-                environment: environment as Record<string, string | undefined>,
+                environment,
                 model: state.model,
                 interactionMode: state.interactionMode,
                 conversationId: state.conversationId,
