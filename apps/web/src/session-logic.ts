@@ -55,6 +55,11 @@ export const PROVIDER_OPTIONS: Array<{
     available: true,
     pickerSidebarBadge: "new",
   },
+  {
+    value: ProviderDriverKind.make("agy"),
+    label: "Antigravity",
+    available: true,
+  },
 ];
 
 export type WorkLogToolLifecycleStatus =
