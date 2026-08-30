@@ -543,6 +543,10 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             ).pipe(Effect.ignore);
           }
 
+          // Bump the generation before killing so the dying pump's handlers bail immediately
+          // rather than publishing a runtime.error or a late content.delta for the aborted turn.
+          state.spawnGeneration += 1;
+
           if (state.process) {
             yield* state.process.kill();
             state.process = undefined;
@@ -552,7 +556,6 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
             state.pumpFiber = undefined;
           }
 
-          state.spawnGeneration += 1;
           state.activeTurn = undefined;
         }),
       );
