@@ -153,7 +153,8 @@ export function decodeAgyOutputLine(line: string): AgyOutputLine {
 
   switch (record["event"]) {
     case "init": {
-      const init = asRecord(record["init"]) ?? {};
+      const init = asRecord(record["init"]);
+      if (!init) return { _tag: "Unknown", raw: parsed };
       const tools = Array.isArray(init["tools"])
         ? init["tools"].filter((tool): tool is string => typeof tool === "string")
         : [];

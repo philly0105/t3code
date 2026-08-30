@@ -81,5 +81,12 @@ describe("decodeAgyOutputLine", () => {
     expect(decodeAgyOutputLine("not json")._tag).toBe("Unknown");
     expect(decodeAgyOutputLine('{"event":"future_thing"}')._tag).toBe("Unknown");
     expect(decodeAgyOutputLine("")._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine("[1,2]")._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine("null")._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine("5")._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine("   ")._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine('{"event":"step_update"}')._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine('{"event":"result"}')._tag).toBe("Unknown");
+    expect(decodeAgyOutputLine('{"event":"init"}')._tag).toBe("Unknown");
   });
 });
