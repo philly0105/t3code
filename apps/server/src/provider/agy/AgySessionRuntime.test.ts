@@ -53,3 +53,32 @@ it.effect("streams decoded lines for one turn and reports the conversation id", 
     assert.strictEqual(yield* agyProcess.conversationId, "conv-test");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it.effect("supports multiple turns on a single subscription and can be killed", () =>
+  Effect.gen(function* () {
+    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const agyProcess = yield* makeAgyProcess({
+      settings: decodeAgySettings({ enabled: true, binaryPath }),
+      cwd: NodeOS.tmpdir(),
+      environment: { ...process.env, AGY_MOCK_CONVERSATION_ID: "conv-multi" },
+    });
+
+    const collected = yield* Effect.forkScoped(
+      agyProcess.lines.pipe(
+        Stream.filter((line) => line._tag === "Result"),
+        Stream.take(2),
+        Stream.runCollect,
+      ),
+    );
+
+    yield* agyProcess.sendTurn("turn 1");
+    yield* agyProcess.sendTurn("turn 2");
+
+    const lines = Array.from(yield* Fiber.join(collected));
+    assert.strictEqual(lines.length, 2);
+    assert.strictEqual(lines[0]!._tag, "Result");
+    assert.strictEqual(lines[1]!._tag, "Result");
+
+    yield* agyProcess.kill();
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

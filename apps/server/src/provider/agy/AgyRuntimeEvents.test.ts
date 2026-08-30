@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 
 import { EventId, ThreadId, TurnId } from "@t3tools/contracts";
 

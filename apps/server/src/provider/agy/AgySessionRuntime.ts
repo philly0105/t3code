@@ -23,7 +23,12 @@ export class AgyProcessError extends Data.TaggedError("AgyProcessError")<{
 
 export interface AgyProcess {
   readonly sendTurn: (text: string) => Effect.Effect<void, AgyProcessError>;
-  readonly lines: Stream.Stream<AgyOutputLine>;
+  /**
+   * Stream of decoded output lines from the `agy` process.
+   * Note: This stream supports exactly ONE long-lived subscription for the life of the process.
+   * Consumers must not re-subscribe per turn.
+   */
+  readonly lines: Stream.Stream<AgyOutputLine, AgyProcessError>;
   readonly kill: () => Effect.Effect<void>;
   readonly conversationId: Effect.Effect<string | undefined>;
 }
@@ -91,6 +96,7 @@ export const makeAgyProcess = Effect.fn("makeAgyProcess")(function* (input: {
   const conversationRef = yield* Ref.make<string | undefined>(input.conversationId);
 
   const lines = child.stdout.pipe(
+    Stream.mapError((cause) => new AgyProcessError({ detail: "agy stdout failed", cause })),
     Stream.decodeText(),
     Stream.splitLines,
     Stream.filter((line) => line.trim().length > 0),
@@ -101,16 +107,27 @@ export const makeAgyProcess = Effect.fn("makeAgyProcess")(function* (input: {
   );
 
   const stdinQueue = yield* Queue.unbounded<Uint8Array>();
-  yield* Stream.fromQueue(stdinQueue).pipe(Stream.run(child.stdin), Effect.forkScoped);
+  yield* Stream.fromQueue(stdinQueue).pipe(
+    Stream.run(child.stdin),
+    Effect.ensuring(Queue.shutdown(stdinQueue)),
+    Effect.forkScoped,
+  );
+
+  yield* child.stderr.pipe(Stream.runDrain, Effect.ignore, Effect.forkScoped);
 
   return {
     lines,
     conversationId: Ref.get(conversationRef),
     sendTurn: (text) =>
       Queue.offer(stdinQueue, new TextEncoder().encode(encodeAgyUserMessage(text))).pipe(
-        Effect.asVoid,
-        Effect.mapError(
-          (cause) => new AgyProcessError({ detail: "Failed to write turn to agy stdin", cause }),
+        Effect.flatMap((success) =>
+          success
+            ? Effect.void
+            : Effect.fail(
+                new AgyProcessError({
+                  detail: "Cannot send turn: process queue is closed or process died",
+                }),
+              ),
         ),
       ),
     kill: () => child.kill().pipe(Effect.ignore),
