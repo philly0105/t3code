@@ -46,6 +46,23 @@ describe("parseAgyModelsOutput", () => {
   });
 });
 
+// Writes a throwaway `agy` stub into a scoped temp dir and returns its path. CI runs Linux and
+// developers run Windows, so each caller supplies both script bodies.
+const writeAgyStub = (prefix: string, win32: ReadonlyArray<string>, unix: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix });
+    const isWin32 = process.platform === "win32";
+    const agyPath = path.join(dir, isWin32 ? "agy.cmd" : "agy.sh");
+    yield* fs.writeFileString(
+      agyPath,
+      isWin32 ? `${win32.join("\r\n")}\r\n` : `${unix.join("\n")}\n`,
+      { mode: 0o755 },
+    );
+    return agyPath;
+  });
+
 it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
   it.effect("reports the binary as missing when the binary path does not resolve", () =>
     Effect.gen(function* () {
@@ -64,19 +81,15 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
 
   it.effect("reports an installed CLI as unhealthy when --version exits non-zero", () =>
     Effect.gen(function* () {
-      const secretStderr = "broken agy install: secret-token-value";
+      // Printed to stdout on purpose: the defect this pins was raw stdout reaching `version`.
+      const secretOutput = "broken agy install: secret-token-value";
       const snapshot = yield* Effect.scoped(
         Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-agy-version-" });
-          const agyPath = path.join(dir, "agy.cmd");
-          yield* fs.writeFileString(
-            agyPath,
-            [`@echo off`, `echo ${secretStderr}`, `exit /b 2`, ``].join("\r\n"),
+          const agyPath = yield* writeAgyStub(
+            "t3code-agy-version-",
+            [`@echo off`, `echo ${secretOutput}`, `exit /b 2`],
+            [`#!/bin/sh`, `echo "${secretOutput}"`, `exit 2`],
           );
-
-          yield* fs.chmod(agyPath, 0o755);
 
           return yield* checkAgyProviderStatus(
             decodeAgySettings({ enabled: true, binaryPath: agyPath }),
@@ -89,7 +102,7 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
       expect(snapshot.status).toBe("error");
       expect(snapshot.version).toBeNull();
       expect(snapshot.message).toBe("Antigravity CLI is installed but failed to run.");
-      expect(snapshot.message).not.toContain(secretStderr);
+      expect(snapshot.message).not.toContain(secretOutput);
     }),
   );
 
@@ -97,13 +110,8 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
     Effect.gen(function* () {
       const snapshot = yield* Effect.scoped(
         Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-agy-models-fail-" });
-          const agyPath = path.join(dir, "agy.cmd");
-
-          yield* fs.writeFileString(
-            agyPath,
+          const agyPath = yield* writeAgyStub(
+            "t3code-agy-models-fail-",
             [
               `@echo off`,
               `if "%~1"=="--version" (`,
@@ -111,8 +119,15 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
               `  exit /b 0`,
               `)`,
               `exit /b 2`,
-              ``,
-            ].join("\r\n"),
+            ],
+            [
+              `#!/bin/sh`,
+              `if [ "$1" = "--version" ]; then`,
+              `  echo 1.1.22`,
+              `  exit 0`,
+              `fi`,
+              `exit 2`,
+            ],
           );
 
           return yield* checkAgyProviderStatus(
@@ -136,13 +151,8 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
     Effect.gen(function* () {
       const snapshot = yield* Effect.scoped(
         Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const path = yield* Path.Path;
-          const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-agy-success-" });
-          const agyPath = path.join(dir, "agy.cmd");
-
-          yield* fs.writeFileString(
-            agyPath,
+          const agyPath = yield* writeAgyStub(
+            "t3code-agy-success-",
             [
               `@echo off`,
               `if "%~1"=="--version" (`,
@@ -151,8 +161,16 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
               `)`,
               `echo discovered-model-1`,
               `exit /b 0`,
-              ``,
-            ].join("\r\n"),
+            ],
+            [
+              `#!/bin/sh`,
+              `if [ "$1" = "--version" ]; then`,
+              `  echo 1.1.22`,
+              `  exit 0`,
+              `fi`,
+              `echo discovered-model-1`,
+              `exit 0`,
+            ],
           );
 
           return yield* checkAgyProviderStatus(
