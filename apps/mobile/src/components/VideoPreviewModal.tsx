@@ -91,7 +91,7 @@ function VideoPlayback(props: { readonly file: AttachmentPreviewFile }) {
               fullscreenOptions={{ enable: true }}
               allowsPictureInPicture={false}
             />
-            {status === "loading" || status === "idle" ? (
+            {status === "loading" ? (
               <ActivityIndicator color="#ffffff" accessibilityLabel="Loading video" />
             ) : null}
           </>
