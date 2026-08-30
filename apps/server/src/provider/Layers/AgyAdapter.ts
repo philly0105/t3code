@@ -304,6 +304,23 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
               });
             }
 
+            if (input.interactionMode !== undefined) {
+              const targetMode =
+                state.session.runtimeMode === "approval-required" ? "plan" : input.interactionMode;
+              if (targetMode !== state.interactionMode) {
+                state.interactionMode = targetMode;
+                if (state.process) {
+                  state.spawnGeneration += 1;
+                  yield* state.process.kill();
+                  state.process = undefined;
+                  if (state.pumpFiber) {
+                    yield* Fiber.interrupt(state.pumpFiber).pipe(Effect.ignore);
+                    state.pumpFiber = undefined;
+                  }
+                }
+              }
+            }
+
             let agyProcess = state.process;
             let pumpFiber = state.pumpFiber;
             if (!agyProcess) {

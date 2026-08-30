@@ -47,6 +47,19 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     emit({ event: "step_update", step_update: { conversation_id: conversationId, ...fields } });
   };
 
+  const isTestModeObs = process.env["AGY_MOCK_TEST_MODE_OBS"] === "1";
+  if (isTestModeObs && stepIndex === 0) {
+    const modeArg = process.argv.indexOf("--mode");
+    const launchMode = modeArg !== -1 ? process.argv[modeArg + 1] : "none";
+    stepIndex += 1;
+    step({
+      step_index: stepIndex,
+      state: "DONE",
+      step_type: "agent_response",
+      text_delta: `LMODE:${launchMode}`,
+    });
+  }
+
   if (toolName) {
     stepIndex += 1;
     const toolStep = stepIndex;

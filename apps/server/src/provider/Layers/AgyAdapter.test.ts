@@ -307,3 +307,75 @@ it.effect("fails sendTurn with ProviderAdapterProcessError on mid-turn process d
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it.effect("recycles the agy process when interactionMode changes, preserving the session", () =>
+  Effect.gen(function* () {
+    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
+      environment: { ...process.env, AGY_MOCK_TEST_MODE_OBS: "1" },
+      instanceId,
+    });
+
+    // Start with default/accept-edits mode
+    yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
+
+    const allEvents: Array<ProviderRuntimeEvent> = [];
+    const eventCollectorFiber = yield* Effect.forkChild(
+      Stream.runForEach(adapter.streamEvents, (event) =>
+        Effect.sync(() => {
+          if (event.threadId === threadId) {
+            allEvents.push(event);
+          }
+        }),
+      ),
+    );
+
+    // Send first turn explicitly requesting plan mode
+    const stream = adapter.streamEvents.pipe(Stream.filter((e) => e.threadId === threadId));
+    const turn1Fiber = yield* Effect.forkChild(
+      Stream.runCollect(stream.pipe(Stream.takeUntil((e) => e.type === "turn.completed"))),
+    );
+    yield* adapter.sendTurn({ threadId, input: "turn 1", interactionMode: "plan" });
+    const events1 = Array.from(yield* Fiber.join(turn1Fiber)) as Array<ProviderRuntimeEvent>;
+
+    // Check that it actually launched in plan mode
+    const modeDelta1 = events1.find(
+      (e) => e.type === "content.delta" && (e.payload as { delta: string }).delta === "LMODE:plan",
+    );
+    assert.isDefined(modeDelta1, "Should have observed LMODE:plan");
+
+    // Capture conversation id to ensure it's preserved
+    const sessions1 = yield* adapter.listSessions();
+    type ResumeCursor = { schemaVersion: 1; conversationId?: string };
+    const cursor1 = sessions1[0]?.resumeCursor as ResumeCursor | undefined;
+    const convId1 = cursor1?.conversationId;
+    assert.isDefined(convId1);
+
+    // Send second turn, toggling back to default mode
+    const turn2Fiber = yield* Effect.forkChild(
+      Stream.runCollect(stream.pipe(Stream.takeUntil((e) => e.type === "turn.completed"))),
+    );
+
+    yield* adapter.sendTurn({ threadId, input: "turn 2", interactionMode: "default" });
+    const events2 = Array.from(yield* Fiber.join(turn2Fiber)) as Array<ProviderRuntimeEvent>;
+
+    // Check that it launched in accept-edits mode
+    const modeDelta2 = events2.find(
+      (e) =>
+        e.type === "content.delta" &&
+        (e.payload as { delta: string }).delta === "LMODE:accept-edits",
+    );
+    assert.isDefined(modeDelta2, "Should have observed LMODE:accept-edits");
+
+    // Ensure session and conversation id is preserved
+    const sessions2 = yield* adapter.listSessions();
+    assert.strictEqual(sessions2.length, 1);
+    const cursor2 = sessions2[0]?.resumeCursor as ResumeCursor | undefined;
+    assert.strictEqual(cursor2?.conversationId, convId1);
+
+    // Verify session.exited was not emitted
+    yield* Fiber.interrupt(eventCollectorFiber);
+    const exitedEvents = allEvents.filter((e) => e.type === "session.exited");
+    assert.strictEqual(exitedEvents.length, 0);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
