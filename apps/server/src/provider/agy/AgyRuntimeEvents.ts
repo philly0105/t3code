@@ -30,7 +30,6 @@ export interface AgyEventStamp {
 }
 
 export interface AgyEventContext {
-  readonly stamp: AgyEventStamp;
   readonly threadId: ThreadId;
   readonly turnId: TurnId | undefined;
   readonly providerInstanceId: ProviderInstanceId | undefined;
@@ -61,7 +60,6 @@ function itemTypeForTool(toolName: string | undefined): ToolLifecycleItemType {
 
 function base(context: AgyEventContext) {
   return {
-    ...context.stamp,
     provider: AGY_DRIVER_KIND,
     threadId: context.threadId,
     ...(context.providerInstanceId ? { providerInstanceId: context.providerInstanceId } : {}),
@@ -86,11 +84,11 @@ function usageSnapshot(usage: AgyUsage) {
 export function agyStepToRuntimeEvents(
   context: AgyEventContext,
   step: AgyStep,
-): ReadonlyArray<ProviderRuntimeEvent> {
+): ReadonlyArray<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> {
   const itemId = RuntimeItemId.make(itemIdForStep(step));
 
   if (step.stepType === "agent_response") {
-    const events: Array<ProviderRuntimeEvent> = [];
+    const events: Array<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> = [];
     if (step.textDelta !== undefined && step.textDelta.length > 0) {
       events.push({
         type: "content.delta",
@@ -142,9 +140,9 @@ export function agyStepToRuntimeEvents(
 export function agyResultToRuntimeEvents(
   context: AgyEventContext,
   result: AgyResult,
-): ReadonlyArray<ProviderRuntimeEvent> {
+): ReadonlyArray<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> {
   const failed = result.status === "ERROR";
-  const events: Array<ProviderRuntimeEvent> = [
+  const events: Array<Omit<ProviderRuntimeEvent, keyof AgyEventStamp>> = [
     {
       type: "turn.completed",
       ...base(context),

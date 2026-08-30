@@ -6,7 +6,6 @@ import { agyResultToRuntimeEvents, agyStepToRuntimeEvents } from "./AgyRuntimeEv
 import type { AgyResult, AgyStep } from "./AgyStreamJson.ts";
 
 const context = {
-  stamp: { eventId: EventId.make("evt_1"), createdAt: "2026-08-30T00:00:00.000Z" },
   threadId: ThreadId.make("thread_1"),
   turnId: TurnId.make("turn_1"),
   providerInstanceId: undefined,
