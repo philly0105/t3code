@@ -7,7 +7,7 @@ orchestration layer does not know which one is behind a thread.
 
 ## Built-in drivers
 
-[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with five entries:
+[`builtInDrivers.ts`][drivers] exports `BUILT_IN_DRIVERS` with six entries:
 
 | Driver kind   | Driver source                           |
 | ------------- | --------------------------------------- |
@@ -16,12 +16,26 @@ orchestration layer does not know which one is behind a thread.
 | `cursor`      | [`Drivers/CursorDriver.ts`][cursor]     |
 | `grok`        | [`Drivers/GrokDriver.ts`][grok]         |
 | `opencode`    | [`Drivers/OpenCodeDriver.ts`][opencode] |
+| `agy`         | [`Drivers/AgyDriver.ts`][agy]           |
 
 Each driver declares its `driverKind`, a `configSchema`, and a `create` function that builds an
 adapter in a child scope. Adapter implementations live beside them in
 `apps/server/src/provider/Layers/` (`CodexAdapter.ts`, `ClaudeAdapter.ts`, and so on) and conform to
 [`ProviderAdapter.ts`][adapter]. Read the driver plus its adapter to see how a specific agent's
 transport, config, and event shapes are mapped.
+
+### Antigravity (`agy`) constraints
+
+The Antigravity CLI's stream-json mode is narrower than the other transports, and the adapter is
+shaped around three hard limits:
+
+- **No approvals.** Print mode always reports `permission_mode: always-proceed`, and the CLI answers
+  a `control_request` stream input with "not supported yet". The adapter never emits
+  `request.opened`; `respondToRequest` fails rather than pretending.
+- **Interrupt is process termination.** With no control channel, `interruptTurn` kills the child and
+  relies on `--conversation <id>` to resume on the next turn.
+- **Tool output is summarized.** `view_file` reports `"192 lines, 14801 bytes"` rather than content,
+  so per-tool diffs are unavailable. Thread diffs come from T3's git checkpoints instead.
 
 ## Registry and routing
 
@@ -37,7 +51,9 @@ Two registries separate configuration from live processes:
 directory to route session and turn operations for a thread, so callers name a thread, not an agent.
 
 Adding a driver means writing the driver plus adapter and adding it to `BUILT_IN_DRIVERS`. No
-orchestration, contract, or client change is required for the common case.
+orchestration change is required. Two contract edits are: a `RuntimeEventRawSource` literal for the
+new transport in [`providerRuntime.ts`][contracts-runtime], and a settings schema in
+[`settings.ts`][contracts-settings]. Clients need an icon and a label.
 
 ## OpenCode server ownership and catalog
 
@@ -175,3 +191,6 @@ when a request opens (approval) or user input is requested, via
 [ingest]: ../../apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts
 [cmd]: ../../apps/server/src/orchestration/Layers/ProviderCommandReactor.ts
 [checkpoint]: ../../apps/server/src/orchestration/Layers/CheckpointReactor.ts
+[agy]: ../../apps/server/src/provider/Drivers/AgyDriver.ts
+[contracts-runtime]: ../../packages/contracts/src/providerRuntime.ts
+[contracts-settings]: ../../packages/contracts/src/settings.ts
