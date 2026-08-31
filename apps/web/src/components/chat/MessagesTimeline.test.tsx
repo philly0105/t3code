@@ -177,6 +177,7 @@ const MESSAGE_CREATED_AT = "2026-03-17T19:12:28.000Z";
 function buildProps() {
   return {
     isWorking: false,
+    activeTurnStartedAt: null,
     listRef: createRef<LegendListRef | null>(),
     latestTurn: null,
     runningTurnId: null,
@@ -712,6 +713,7 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
         latestTurn={{
           turnId,
           state: "running",
@@ -1217,6 +1219,7 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
         latestTurn={{
           turnId,
           state: "running",
@@ -1245,6 +1248,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).toContain("Working for");
     expect(markup).toContain("Running pnpm");
     expect(markup).toContain("live-activity-focus");
   });
@@ -1255,6 +1259,7 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
         latestTurn={{
           turnId,
           state: "running",
@@ -1309,6 +1314,7 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline
         {...buildProps()}
         isWorking
+        activeTurnStartedAt={MESSAGE_CREATED_AT}
         latestTurn={{
           turnId,
           state: "running",

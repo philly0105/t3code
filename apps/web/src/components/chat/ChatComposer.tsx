@@ -665,8 +665,6 @@ export interface ChatComposerProps {
   activeProposedPlan: Thread["proposedPlans"][number] | null;
   activeTasksProgress: ComposerTasksProgress | null;
   activeTaskSteps: readonly ComposerTaskStep[] | null;
-  isWorking: boolean;
-  activeWorkStartedAt: string | null;
   threadSyncPhase: ThreadSyncPhase | null;
 
   // Mode
@@ -770,8 +768,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     respondingRequestIds,
     showPlanFollowUpPrompt,
     activeProposedPlan,
-    isWorking,
-    activeWorkStartedAt,
     runtimeMode,
     interactionMode,
     lockedProvider,
@@ -2860,13 +2856,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     setIsTasksDrawerOpen((open) => !open);
   }, []);
   const activityStatus = useMemo<ComposerActivityStatus | undefined>(
-    () =>
-      props.threadSyncPhase
-        ? { kind: "sync", phase: props.threadSyncPhase }
-        : isWorking
-          ? { kind: "working", startedAt: activeWorkStartedAt }
-          : undefined,
-    [props.threadSyncPhase, isWorking, activeWorkStartedAt],
+    () => (props.threadSyncPhase ? { kind: "sync", phase: props.threadSyncPhase } : undefined),
+    [props.threadSyncPhase],
   );
   const hasBannerItems = props.bannerItems.length > 0;
   const hasBlockingComposerTopDrawer =

@@ -75,7 +75,7 @@ function TaskSummary({
   return (
     <>
       {activityStatus !== undefined ? (
-        <ComposerActivityIcon status={activityStatus} />
+        <ComposerActivityIcon />
       ) : (
         <ComposerBanner.Icon>
           <ListTodoIcon />
