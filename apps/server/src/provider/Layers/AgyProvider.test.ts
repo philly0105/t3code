@@ -192,4 +192,46 @@ it.layer(NodeServices.layer)("checkAgyProviderStatus", (it) => {
       ]);
     }),
   );
+
+  // The real `agy models` reads stdin to EOF before printing, so leaving the
+  // default stdin pipe open hangs discovery until the timeout. This stub blocks
+  // the same way; it only completes because the probe closes stdin.
+  it.effect("completes discovery when the CLI drains stdin before printing models", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const agyPath = yield* writeAgyStub(
+            "t3code-agy-stdin-",
+            [
+              `@echo off`,
+              `if "%~1"=="--version" (`,
+              `  echo 1.1.22`,
+              `  exit /b 0`,
+              `)`,
+              `set /p AGY_STDIN_PROBE=`,
+              `echo discovered-model-1`,
+              `exit /b 0`,
+            ],
+            [
+              `#!/bin/sh`,
+              `if [ "$1" = "--version" ]; then`,
+              `  echo 1.1.22`,
+              `  exit 0`,
+              `fi`,
+              `cat > /dev/null`,
+              `echo discovered-model-1`,
+              `exit 0`,
+            ],
+          );
+
+          return yield* checkAgyProviderStatus(
+            decodeAgySettings({ enabled: true, binaryPath: agyPath }),
+          );
+        }),
+      );
+
+      expect(snapshot.status).toBe("ready");
+      expect(snapshot.models.map((model) => model.slug)).toEqual(["discovered-model-1"]);
+    }),
+  );
 });

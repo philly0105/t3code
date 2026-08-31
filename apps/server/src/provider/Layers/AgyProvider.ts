@@ -122,6 +122,9 @@ const runAgyCommand = (
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
         env: environment,
         shell: spawnCommand.shell,
+        // `agy models` blocks until stdin reaches EOF, so an open pipe hangs the
+        // probe until the discovery timeout. These probes never write stdin.
+        stdin: "ignore",
       }),
     );
   });
