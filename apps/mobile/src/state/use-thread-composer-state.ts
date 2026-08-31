@@ -28,7 +28,7 @@ import {
   convertPastedImagesToAttachments,
   pasteComposerClipboard,
   pickComposerFiles,
-  pickComposerImages,
+  pickComposerMedia,
 } from "../lib/composerImages";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
@@ -316,26 +316,29 @@ export function useThreadComposerState() {
     [selectedThreadShell],
   );
 
-  const onPickDraftImages = useCallback(async () => {
+  const onPickDraftMedia = useCallback(async () => {
     if (!selectedThreadShell) {
       return;
     }
 
     const threadKey = scopedThreadKey(selectedThreadShell.environmentId, selectedThreadShell.id);
-    const result = await pickComposerImages({
+    const result = await pickComposerMedia({
       existingCount: composerDrafts[threadKey]?.attachments.length ?? 0,
+      maxVideoBytes:
+        selectedEnvironmentRuntime?.serverConfig?.environment.capabilities.fileAttachments
+          ?.maxUploadBytes,
     });
-    const rejectedImageCount = appendComposerDraftAttachments(threadKey, result.images);
+    const rejectedCount = appendComposerDraftAttachments(threadKey, result.attachments);
     const problems = [
       ...(result.error ? [result.error] : []),
-      ...(rejectedImageCount > 0
+      ...(rejectedCount > 0
         ? [`You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} attachments per message.`]
         : []),
     ];
     if (problems.length > 0) {
-      Alert.alert("Could not attach image", problems.join("\n\n"));
+      Alert.alert("Could not attach photo or video", problems.join("\n\n"));
     }
-  }, [composerDrafts, selectedThreadShell]);
+  }, [composerDrafts, selectedEnvironmentRuntime?.serverConfig, selectedThreadShell]);
 
   const onPickDraftFiles = useCallback(async () => {
     if (!selectedThreadShell) {
@@ -470,7 +473,7 @@ export function useThreadComposerState() {
     runtimeMode,
     interactionMode,
     onChangeDraftMessage,
-    onPickDraftImages,
+    onPickDraftMedia,
     onPickDraftFiles,
     onPasteIntoDraft,
     onNativePasteImages,

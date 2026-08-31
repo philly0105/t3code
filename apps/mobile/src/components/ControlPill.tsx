@@ -6,12 +6,15 @@ import {
   type ComponentProps,
   type ReactElement,
   type ReactNode,
+  useMemo,
   useRef,
 } from "react";
 import { Platform, Pressable, View, type PressableProps } from "react-native";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 
 import { cn } from "../lib/cn";
+import { withMenuActionIconColors } from "../lib/menu-action-colors";
+import { useUniwindTheme } from "../lib/useUniwindTheme";
 import { AndroidAnchoredMenu } from "./AndroidAnchoredMenu";
 import { SymbolView } from "./AppSymbol";
 import { AppText as Text } from "./AppText";
@@ -120,6 +123,19 @@ export function ControlPillMenu(
 ) {
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
+  const theme = useUniwindTheme();
+  const iconColor = theme["--color-icon"];
+  const destructiveIconColor = theme["--color-danger-foreground"];
+  const actions = useMemo(
+    () =>
+      Platform.OS === "android"
+        ? props.actions
+        : withMenuActionIconColors(props.actions, {
+            icon: iconColor,
+            destructiveIcon: destructiveIconColor,
+          }),
+    [props.actions, iconColor, destructiveIconColor],
+  );
   const menuPress = useRef({ isPreparing: false, isOpen: false, suppressPress: false });
   const pendingPress = useRef<(() => void) | null>(null);
 
@@ -217,7 +233,7 @@ export function ControlPillMenu(
     };
   }
   return (
-    <MenuView {...menuProps} themeVariant={isDarkMode ? "dark" : "light"}>
+    <MenuView {...menuProps} actions={actions} themeVariant={isDarkMode ? "dark" : "light"}>
       {children}
     </MenuView>
   );
