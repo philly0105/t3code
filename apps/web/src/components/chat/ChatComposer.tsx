@@ -79,7 +79,7 @@ import {
   type ComposerTaskStep,
   type ComposerTasksProgress,
 } from "./ComposerTasksBadge";
-import { ComposerActivityRow, type ComposerActivityStatus } from "./ComposerActivityStatus";
+import { ThreadSyncStatusPill } from "./ThreadSyncStatusPill";
 import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
 import { ComposerSurface } from "./ComposerSurface";
@@ -768,6 +768,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     respondingRequestIds,
     showPlanFollowUpPrompt,
     activeProposedPlan,
+    activeTasksProgress,
+    activeTaskSteps,
     runtimeMode,
     interactionMode,
     lockedProvider,
@@ -808,8 +810,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onFileOpen,
     openingVideoAttachmentId,
   } = props;
-  const activeTasksProgress = props.threadSyncPhase === null ? props.activeTasksProgress : null;
-  const activeTaskSteps = props.threadSyncPhase === null ? props.activeTaskSteps : null;
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
   // ------------------------------------------------------------------
@@ -2855,17 +2855,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const toggleTasksDrawer = useCallback(() => {
     setIsTasksDrawerOpen((open) => !open);
   }, []);
-  const activityStatus = useMemo<ComposerActivityStatus | undefined>(
-    () => (props.threadSyncPhase ? { kind: "sync", phase: props.threadSyncPhase } : undefined),
-    [props.threadSyncPhase],
-  );
   const hasBannerItems = props.bannerItems.length > 0;
+  const hasAttachedNotice = hasBannerItems || props.threadSyncPhase !== null;
   const hasBlockingComposerTopDrawer =
     activePendingApproval !== null || pendingUserInputs.length > 0;
   const showInlineStashBadge =
     stashQueue.length > 0 &&
     !isComposerApprovalState &&
-    (hasBannerItems || showComposerTopDrawer || isTasksDrawerOpen || isMobileViewport);
+    (hasAttachedNotice || showComposerTopDrawer || isTasksDrawerOpen || isMobileViewport);
   const inlineStashBadge = showInlineStashBadge ? (
     <ComposerStashBadge
       count={stashQueue.length}
@@ -2881,7 +2878,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeTaskSteps !== null &&
     !isTasksDrawerOpen &&
     !hasBlockingComposerTopDrawer &&
-    (hasBannerItems || showComposerTopDrawer || isComposerCollapsedMobile);
+    (hasAttachedNotice || showComposerTopDrawer || isComposerCollapsedMobile);
   const inlineTasksBadge = showInlineTasksBadge ? (
     <ComposerTasksBadge
       expanded={false}
@@ -2889,48 +2886,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       placement="inline"
       progress={activeTasksProgress}
       steps={activeTaskSteps}
-      activityStatus={activityStatus}
     />
   ) : null;
   const showShoulderTabs =
-    !hasBannerItems && !showComposerTopDrawer && !isTasksDrawerOpen && !isComposerCollapsedMobile;
+    !hasAttachedNotice &&
+    !showComposerTopDrawer &&
+    !isTasksDrawerOpen &&
+    !isComposerCollapsedMobile;
   const hasShoulderTab =
     showShoulderTabs &&
-    (activityStatus !== undefined ||
-      (stashQueue.length > 0 && !showInlineStashBadge) ||
+    ((stashQueue.length > 0 && !showInlineStashBadge) ||
       (activeTasksProgress !== null &&
         activeTaskSteps !== null &&
         activeTasksProgress.totalSteps > 0));
-  const tasksHostActivityStatus =
-    activeTasksProgress !== null &&
-    activeTasksProgress.totalSteps > 0 &&
-    activeTaskSteps !== null &&
-    !hasBlockingComposerTopDrawer &&
-    (showShoulderTabs || showInlineTasksBadge || isTasksDrawerOpen);
-  const standaloneActivityStatus = !tasksHostActivityStatus ? activityStatus : undefined;
-  const activityStackContent = hasBannerItems ? (
-    !hasBlockingComposerTopDrawer && activeTasksProgress && activeTaskSteps ? (
+  const tasksStackContent =
+    hasBannerItems && !hasBlockingComposerTopDrawer && activeTasksProgress && activeTaskSteps ? (
       <ComposerTasksContent
         expanded={isTasksDrawerOpen}
         onToggle={toggleTasksDrawer}
         progress={activeTasksProgress}
         steps={activeTaskSteps}
-        activityStatus={activityStatus}
       />
-    ) : activityStatus ? (
-      <ComposerActivityRow status={activityStatus} />
-    ) : null
-  ) : null;
-  const activityStackItem: ComposerBannerStackContent | null = activityStackContent
+    ) : null;
+  const tasksStackItem: ComposerBannerStackContent | null = tasksStackContent
     ? {
         id: "composer-activity",
         variant: "default",
         priority: "activity",
-        content: activityStackContent,
+        content: tasksStackContent,
       }
     : null;
-  const bannerStackItems = activityStackItem
-    ? [...props.bannerItems, activityStackItem]
+  const bannerStackItems = tasksStackItem
+    ? [...props.bannerItems, tasksStackItem]
     : props.bannerItems;
   useEffect(() => {
     if (activeTasksProgress === null || activeTaskSteps === null) {
@@ -3463,14 +3450,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
     >
       <ComposerBannerStack key={activeThreadId} className="relative z-0" items={bannerStackItems} />
-      {!activityStackItem &&
-      (inlineTasksBadge || (standaloneActivityStatus && !showShoulderTabs)) ? (
+      {props.threadSyncPhase ? <ThreadSyncStatusPill phase={props.threadSyncPhase} /> : null}
+      {!tasksStackItem && inlineTasksBadge ? (
         <ComposerBanner.Attachment>
           <ComposerBanner.Root data-chat-composer-activity-strip="true">
-            {inlineTasksBadge ??
-              (standaloneActivityStatus ? (
-                <ComposerActivityRow status={standaloneActivityStatus} />
-              ) : null)}
+            {inlineTasksBadge}
           </ComposerBanner.Root>
         </ComposerBanner.Attachment>
       ) : null}
@@ -3579,7 +3563,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           </ComposerBanner.Root>
         </ComposerBanner.Attachment>
       ) : null}
-      {!activityStackItem &&
+      {!tasksStackItem &&
       isTasksDrawerOpen &&
       !hasBlockingComposerTopDrawer &&
       activeTasksProgress &&
@@ -3588,23 +3572,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           onCollapse={toggleTasksDrawer}
           progress={activeTasksProgress}
           steps={activeTaskSteps}
-          activityStatus={activityStatus}
         />
       ) : null}
       {hasShoulderTab ? (
         <ComposerBanner.Dock>
-          {standaloneActivityStatus ? (
-            <ComposerBanner.Root width="content" data-composer-shoulder-tab>
-              <ComposerActivityRow status={standaloneActivityStatus} />
-            </ComposerBanner.Root>
-          ) : null}
           {activeTasksProgress && activeTaskSteps ? (
             <ComposerTasksBadge
               expanded={false}
               onToggle={toggleTasksDrawer}
               progress={activeTasksProgress}
               steps={activeTaskSteps}
-              activityStatus={activityStatus}
             />
           ) : null}
           {!showInlineStashBadge ? (
