@@ -119,7 +119,24 @@ function Attachment({ className, ...props }: ComponentProps<"div">) {
 function Dock({ className, ...props }: ComponentProps<"div">) {
   return (
     <Attachment
-      className={cn("flex items-end gap-1 *:data-[composer-banner-width=fill]:flex-1", className)}
+      className={cn(
+        "flex items-end gap-1 not-has-data-[composer-banner-surface=attached]:hidden",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Attachments share a column while neighboring tabs keep their own surface. */
+function Column({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 flex-col empty:hidden",
+        "[&>[data-slot=composer-banner-attachment]]:w-full [&>[data-slot=composer-banner-attachment]:last-child]:mb-0",
+        className,
+      )}
       {...props}
     />
   );
@@ -314,6 +331,7 @@ export const ComposerBanner = {
   Peek,
   Attachment,
   Dock,
+  Column,
   Root,
   Row,
   Icon,

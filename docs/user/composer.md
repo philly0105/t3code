@@ -38,6 +38,9 @@ uploaded. Stashed files stay uploaded on the server for 24 hours. If you restore
 that, the file comes back with **Attach again** next to it. Attach the file again or remove it, then
 send.
 
+On web and desktop, the Stash tab stays above the composer beside any notices or task list,
+including when the task list is expanded. Select the tab to restore or delete a stashed prompt.
+
 ## Commands and skills
 
 Type `/` to open the command menu. Type `$` to find and add a skill. Skill rows show their source,
