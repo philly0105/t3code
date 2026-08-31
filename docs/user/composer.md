@@ -29,15 +29,6 @@ On mobile, the model picker shows each OpenCode model's upstream provider, such 
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
 
-## Tasks
-
-On web and desktop, task progress appears above the composer while the current turn has
-unfinished tasks. Select Tasks to expand or collapse the list. The list disappears when the
-turn finishes or all tasks are complete; it is not repeated in the conversation timeline.
-
-While messages load or sync, a status banner replaces the task list. Task controls return once
-the thread is up to date, if the current turn still has unfinished tasks.
-
 ## Prompt stash
 
 Use the default shortcut, `Cmd+S` on macOS or `Ctrl+S` on Windows and Linux, to stash the current
@@ -46,9 +37,6 @@ menu. Stashes that contain files must be restored in the environment where those
 uploaded. Stashed files stay uploaded on the server for 24 hours. If you restore an entry after
 that, the file comes back with **Attach again** next to it. Attach the file again or remove it, then
 send.
-
-On web and desktop, the Stash tab stays above the composer beside any notices or task list,
-including when the task list is expanded. Select the tab to restore or delete a stashed prompt.
 
 ## Commands and skills
 
