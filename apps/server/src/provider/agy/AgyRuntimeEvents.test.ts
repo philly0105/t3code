@@ -24,8 +24,19 @@ describe("agyStepToRuntimeEvents", () => {
     const events = agyStepToRuntimeEvents(context, step({ textDelta: "hello" }));
     expect(events).toHaveLength(1);
     expect(events[0]?.type).toBe("content.delta");
-    expect(events[0]?.itemId).toBe("agy-step-1");
+    expect(events[0]?.itemId).toBe("agy-turn_1-step-1");
     expect(events[0]?.raw?.source).toBe("agy.streamjson");
+  });
+
+  it("gives the same step index a distinct item id in a later turn", () => {
+    // agy restarts step indices whenever it opens a new conversation, so an
+    // unscoped id would append a later reply onto the first turn's message.
+    const first = agyStepToRuntimeEvents(context, step({ textDelta: "one" }));
+    const second = agyStepToRuntimeEvents(
+      { ...context, turnId: TurnId.make("turn_2") },
+      step({ textDelta: "two" }),
+    );
+    expect(first[0]?.itemId).not.toBe(second[0]?.itemId);
   });
 
   it("completes the assistant message on a DONE agent_response", () => {

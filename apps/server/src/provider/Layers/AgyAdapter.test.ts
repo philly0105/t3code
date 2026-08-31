@@ -156,11 +156,14 @@ it.effect("handles a second turn on the same session across a single subscriptio
     const turnStartedEvents = allEvents.filter((e) => e.type === "turn.started");
     assert.strictEqual(turnStartedEvents.length, 2);
 
-    // Verify step indexing monotonically increments on the same process
+    // Step indices increment on the same process, and each turn owns its own
+    // item ids so a later reply never lands on an earlier turn's message.
     const deltas = allEvents.filter((e) => e.type === "content.delta");
     const deltaItems = deltas.map((e) => e.itemId);
-    assert.isTrue(deltaItems.some((id) => id === "agy-step-1"));
-    assert.isTrue(deltaItems.some((id) => id === "agy-step-2"));
+    assert.isTrue(deltaItems.some((id) => id?.endsWith("-step-1")));
+    assert.isTrue(deltaItems.some((id) => id?.endsWith("-step-2")));
+    // Deltas of one step share an id; the two turns must not share one.
+    assert.strictEqual(new Set(deltaItems).size, 2);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
@@ -377,5 +380,32 @@ it.effect("recycles the agy process when interactionMode changes, preserving the
     yield* Fiber.interrupt(eventCollectorFiber);
     const exitedEvents = allEvents.filter((e) => e.type === "session.exited");
     assert.strictEqual(exitedEvents.length, 0);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("returns the conversation id as a resume cursor so the next session can resume", () =>
+  Effect.gen(function* () {
+    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
+      environment: { ...process.env, AGY_MOCK_CONVERSATION_ID: "conv-from-init" },
+      instanceId,
+    });
+
+    yield* adapter.startSession({ threadId, cwd: NodeOS.tmpdir(), runtimeMode: "full-access" });
+    const started = yield* adapter.startSession({
+      threadId,
+      cwd: NodeOS.tmpdir(),
+      runtimeMode: "full-access",
+    });
+    // The id only arrives on the init line, so it cannot be known at session start.
+    assert.isUndefined(
+      (started.resumeCursor as { conversationId?: string } | undefined)?.conversationId,
+    );
+
+    const turn = yield* adapter.sendTurn({ threadId, input: "hi" });
+    assert.strictEqual(
+      (turn.resumeCursor as { conversationId?: string } | undefined)?.conversationId,
+      "conv-from-init",
+    );
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

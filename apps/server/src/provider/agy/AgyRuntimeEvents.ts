@@ -35,9 +35,14 @@ export interface AgyEventContext {
   readonly providerInstanceId: ProviderInstanceId | undefined;
 }
 
-/** Stable per-step item id, so deltas and completion land on one timeline item. */
-function itemIdForStep(step: AgyStep): string {
-  return `agy-step-${step.stepIndex}`;
+/**
+ * Stable per-step item id, so deltas and completion land on one timeline item.
+ * Scoped by turn because agy restarts its step indices whenever it opens a new
+ * conversation, and a bare index would then reuse an earlier turn's item.
+ */
+function itemIdForStep(context: AgyEventContext, step: AgyStep): string {
+  const scope = context.turnId ?? context.threadId;
+  return `agy-${scope}-step-${step.stepIndex}`;
 }
 
 function itemTypeForTool(toolName: string | undefined): ToolLifecycleItemType {
@@ -87,7 +92,7 @@ export function agyStepToRuntimeEvents(
   context: AgyEventContext,
   step: AgyStep,
 ): ReadonlyArray<Unstamped<ProviderRuntimeEvent>> {
-  const itemId = RuntimeItemId.make(itemIdForStep(step));
+  const itemId = RuntimeItemId.make(itemIdForStep(context, step));
 
   if (step.stepType === "agent_response") {
     const events: Array<Unstamped<ProviderRuntimeEvent>> = [];

@@ -525,7 +525,16 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
           ),
         );
 
-        return { threadId: input.threadId, turnId } satisfies ProviderTurnStartResult;
+        // The conversation id only arrives on the `init` line, after the turn is
+        // under way, so it has to be handed back here. Without it the next
+        // startSession resumes nothing, agy opens a fresh conversation, and its
+        // step indices restart — which collides item ids across turns.
+        const settled = sessions.get(input.threadId);
+        return {
+          threadId: input.threadId,
+          turnId,
+          ...(settled ? { resumeCursor: settled.session.resumeCursor } : {}),
+        } satisfies ProviderTurnStartResult;
       });
 
     const interruptTurn: AgyAdapterShape["interruptTurn"] = (threadId) =>
