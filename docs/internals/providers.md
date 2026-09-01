@@ -40,6 +40,9 @@ shaped around three hard limits:
   but nothing in the handshake lists what exists, so the snapshot scans the same TOML roots the CLI
   reads (`$GEMINI_HOME/commands`, plugin and extension `commands/` directories, and the workspace's
   `.gemini/commands`). See [`AgyCommands.ts`][agy-commands].
+- **Skills are found on disk too.** Same story, different roots: the snapshot scans the CLI's builtin
+  skills, `$GEMINI_HOME/config/skills`, each plugin's `skills/`, and the workspace's `.agents/skills`,
+  reading each `SKILL.md`'s frontmatter. See [`AgySkills.ts`][agy-skills].
 
 ## Registry and routing
 
@@ -188,6 +191,7 @@ when a request opens (approval) or user input is requested, via
 [opencode-server-owner]: ../../apps/server/src/provider/OpenCodeServerOwner.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
 [agy-commands]: ../../apps/server/src/provider/Drivers/AgyCommands.ts
+[agy-skills]: ../../apps/server/src/provider/Drivers/AgySkills.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts
 [service]: ../../apps/server/src/provider/Layers/ProviderService.ts

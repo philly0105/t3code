@@ -31,6 +31,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
 import { discoverAgyCommands } from "../Drivers/AgyCommands.ts";
+import { discoverAgySkills } from "../Drivers/AgySkills.ts";
 
 const AGY_PRESENTATION = {
   displayName: "Antigravity",
@@ -299,8 +300,10 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     discoveredModels.length > 0
       ? providerModelsFromSettings(discoveredModels, settings.customModels, EMPTY_CAPABILITIES)
       : fallbackModels;
-  // The CLI expands slash commands itself, so listing them is all the menu needs.
+  // The CLI expands slash commands and skills itself, so listing them is all
+  // the menu needs.
   const slashCommands = yield* discoverAgyCommands(cwd, environment);
+  const skills = yield* discoverAgySkills(cwd, environment);
 
   return buildServerProvider({
     presentation: AGY_PRESENTATION,
@@ -308,6 +311,7 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     checkedAt,
     models,
     slashCommands,
+    skills,
     probe: {
       installed: true,
       version,
