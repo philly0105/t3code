@@ -11,6 +11,8 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import { HttpClient } from "effect/unstable/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createModelCapabilities } from "@t3tools/shared/model";
@@ -28,6 +30,7 @@ import {
   enrichProviderSnapshotWithVersionAdvisory,
   type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance.ts";
+import { discoverAgyCommands } from "../Drivers/AgyCommands.ts";
 
 const AGY_PRESENTATION = {
   displayName: "Antigravity",
@@ -132,10 +135,11 @@ const runAgyCommand = (
 export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(function* (
   settings: AgySettings,
   environment: NodeJS.ProcessEnv = process.env,
+  cwd?: string,
 ): Effect.fn.Return<
   ServerProviderDraft,
   never,
-  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto
+  ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | FileSystem.FileSystem | Path.Path
 > {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = providerModelsFromSettings([], settings.customModels, EMPTY_CAPABILITIES);
@@ -295,12 +299,15 @@ export const checkAgyProviderStatus = Effect.fn("checkAgyProviderStatus")(functi
     discoveredModels.length > 0
       ? providerModelsFromSettings(discoveredModels, settings.customModels, EMPTY_CAPABILITIES)
       : fallbackModels;
+  // The CLI expands slash commands itself, so listing them is all the menu needs.
+  const slashCommands = yield* discoverAgyCommands(cwd, environment);
 
   return buildServerProvider({
     presentation: AGY_PRESENTATION,
     enabled: settings.enabled,
     checkedAt,
     models,
+    slashCommands,
     probe: {
       installed: true,
       version,

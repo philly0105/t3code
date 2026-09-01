@@ -36,6 +36,10 @@ shaped around three hard limits:
   relies on `--conversation <id>` to resume on the next turn.
 - **Tool output is summarized.** `view_file` reports `"192 lines, 14801 bytes"` rather than content,
   so per-tool diffs are unavailable. Thread diffs come from T3's git checkpoints instead.
+- **Slash commands are found on disk, not announced.** The CLI expands `/name` itself in print mode,
+  but nothing in the handshake lists what exists, so the snapshot scans the same TOML roots the CLI
+  reads (`$GEMINI_HOME/commands`, plugin and extension `commands/` directories, and the workspace's
+  `.gemini/commands`). See [`AgyCommands.ts`][agy-commands].
 
 ## Registry and routing
 
@@ -183,6 +187,7 @@ when a request opens (approval) or user input is requested, via
 [opencode]: ../../apps/server/src/provider/Drivers/OpenCodeDriver.ts
 [opencode-server-owner]: ../../apps/server/src/provider/OpenCodeServerOwner.ts
 [adapter]: ../../apps/server/src/provider/Services/ProviderAdapter.ts
+[agy-commands]: ../../apps/server/src/provider/Drivers/AgyCommands.ts
 [instances]: ../../apps/server/src/provider/Services/ProviderInstanceRegistry.ts
 [registry]: ../../apps/server/src/provider/Services/ProviderAdapterRegistry.ts
 [service]: ../../apps/server/src/provider/Layers/ProviderService.ts
