@@ -15,6 +15,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
@@ -32,6 +33,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type AgyAdapterShape } from "../Services/AgyAdapter.ts";
+import { restoreAgyCredentialProfile, withAgyAccountLock } from "../agy/AgyCredentialProfile.ts";
 import { type AgyProcess, makeAgyProcess } from "../agy/AgySessionRuntime.ts";
 import {
   agyResultToRuntimeEvents,
@@ -81,6 +83,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
     const crypto = yield* Crypto.Crypto;
     const environment = options?.environment ?? process.env;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystem = yield* FileSystem.FileSystem;
 
     const sessions = new Map<ThreadId, SessionState>();
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
@@ -327,7 +330,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
               state.spawnGeneration += 1;
               const currentGeneration = state.spawnGeneration;
 
-              agyProcess = yield* makeAgyProcess({
+              const spawnAgyProcess = makeAgyProcess({
                 settings,
                 cwd: state.cwd,
                 environment: environment as NodeJS.ProcessEnv,
@@ -347,6 +350,42 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
                     }),
                 ),
               );
+
+              // agy takes its account from a machine-wide credential entry it
+              // reads once at startup, so the profile has to be restored on
+              // every spawn — a respawn after a mode change or crash would
+              // otherwise pick up whichever account another instance left
+              // behind — and spawns have to be serialized while it does.
+              const credentialProfile = settings.credentialProfile;
+              agyProcess = credentialProfile
+                ? yield* withAgyAccountLock(
+                    Effect.gen(function* () {
+                      const restored = yield* restoreAgyCredentialProfile({
+                        profile: credentialProfile,
+                        environment: environment as NodeJS.ProcessEnv,
+                      }).pipe(
+                        Effect.provideService(FileSystem.FileSystem, fileSystem),
+                        Effect.provideService(Path.Path, path),
+                        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+                        Effect.mapError(
+                          (cause) =>
+                            new ProviderAdapterProcessError({
+                              provider: PROVIDER,
+                              threadId: input.threadId,
+                              detail: cause.detail,
+                              cause,
+                            }),
+                        ),
+                      );
+                      yield* Effect.logInfo("Restored Antigravity account profile.", {
+                        profile: credentialProfile,
+                        email: restored.email,
+                        switched: restored.switched,
+                      });
+                      return yield* spawnAgyProcess;
+                    }),
+                  )
+                : yield* spawnAgyProcess;
 
               pumpFiber = yield* Stream.runDrain(
                 Stream.mapEffect(agyProcess.lines, (line) =>

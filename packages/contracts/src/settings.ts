@@ -527,13 +527,22 @@ export const AgySettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "agy", clearWhenEmpty: "omit" },
       }),
     ),
+    credentialProfile: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Account profile",
+        description:
+          "Windows only. Name of a saved account under ~/.agy-profiles, restored before each session so this instance runs as that account. Leave empty to use whichever account is currently logged in.",
+        providerSettingsForm: { placeholder: "e.g. main", clearWhenEmpty: "omit" },
+      }),
+    ),
     customModels: Schema.Array(Schema.String).pipe(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath"],
+    order: ["binaryPath", "credentialProfile"],
   },
 );
 export type AgySettings = typeof AgySettings.Type;
@@ -892,6 +901,7 @@ const GrokSettingsPatch = Schema.Struct({
 const AgySettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  credentialProfile: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
