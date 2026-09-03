@@ -774,6 +774,14 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetUsageSummary,
       staleTimeMs: 60_000,
     }),
+    // Providers only volunteer their quota mid-turn, so this is a cheap
+    // in-memory read of the last reading rather than a scan. Short stale time
+    // so the panel picks up a fresh reading soon after a turn lands.
+    providerLimits: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:provider-limits",
+      tag: WS_METHODS.serverGetProviderLimits,
+      staleTimeMs: 5_000,
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",
