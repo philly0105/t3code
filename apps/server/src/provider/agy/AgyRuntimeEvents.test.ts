@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { EventId, ThreadId, TurnId } from "@t3tools/contracts";
+import { ThreadId, TurnId } from "@t3tools/contracts";
 
 import { agyResultToRuntimeEvents, agyStepToRuntimeEvents } from "./AgyRuntimeEvents.ts";
 import type { AgyResult, AgyStep } from "./AgyStreamJson.ts";

@@ -3,7 +3,7 @@
  *
  * `ProviderDriver` is a record, not a Context.Service. The thing it produces
  * (`ProviderInstance`) is also a record — three captured closures
- * (`snapshot`, `adapter`, optional `textGeneration`), an id, and a driver kind. There
+ * (`snapshot`, `adapter`, `textGeneration`), an id, and a driver kind. There
  * are intentionally no per-driver Context tags because tags are
  * singleton-per-runtime and we need many instances of the same driver.
  *
@@ -25,6 +25,7 @@ import type {
   ProviderDriverKind,
   ProviderInstanceEnvironment,
   ProviderInstanceId,
+  ServerProvider,
 } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
 import type * as Schema from "effect/Schema";
@@ -34,6 +35,7 @@ import type * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import type { ProviderAdapterError, ProviderDriverError } from "./Errors.ts";
 import type { ProviderAdapterShape } from "./Services/ProviderAdapter.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider.ts";
+import type { ProviderAuthController } from "./Services/ProviderAuthService.ts";
 
 /**
  * Static metadata advertised by a driver. Used for default presentation
@@ -69,8 +71,11 @@ export interface ProviderInstance {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly snapshot: ServerProviderShape;
+  readonly snapshotForCwd?: (cwd: string) => Effect.Effect<ServerProvider, ProviderDriverError>;
+  readonly refreshModels?: () => Effect.Effect<void, ProviderDriverError>;
   readonly adapter: ProviderAdapterShape<ProviderAdapterError>;
-  readonly textGeneration?: TextGeneration.TextGeneration["Service"];
+  readonly textGeneration: TextGeneration.TextGeneration["Service"];
+  readonly auth?: ProviderAuthController;
 }
 
 export interface ProviderContinuationIdentity {

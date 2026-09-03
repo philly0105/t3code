@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { AgySettings } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { checkAgyProviderStatus, parseAgyModelsOutput } from "./AgyProvider.ts";
 
@@ -52,8 +53,9 @@ const writeAgyStub = (prefix: string, win32: ReadonlyArray<string>, unix: Readon
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
+    const platform = yield* HostProcessPlatform;
     const dir = yield* fs.makeTempDirectoryScoped({ prefix });
-    const isWin32 = process.platform === "win32";
+    const isWin32 = platform === "win32";
     const agyPath = path.join(dir, isWin32 ? "agy.cmd" : "agy.sh");
     yield* fs.writeFileString(
       agyPath,

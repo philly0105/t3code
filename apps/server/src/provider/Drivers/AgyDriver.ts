@@ -1,4 +1,9 @@
-import { AgySettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import {
+  AgySettings,
+  ProviderDriverKind,
+  TextGenerationError,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -10,6 +15,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as TextGeneration from "../../textGeneration/TextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeAgyAdapter } from "../Layers/AgyAdapter.ts";
 import {
@@ -39,6 +45,36 @@ import {
 const decodeAgySettings = Schema.decodeSync(AgySettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("agy");
+const unsupportedTextGeneration = TextGeneration.TextGeneration.of({
+  generateCommitMessage: () =>
+    Effect.fail(
+      new TextGenerationError({
+        operation: "generateCommitMessage",
+        detail: "The Agy CLI does not support system text generation.",
+      }),
+    ),
+  generatePrContent: () =>
+    Effect.fail(
+      new TextGenerationError({
+        operation: "generatePrContent",
+        detail: "The Agy CLI does not support system text generation.",
+      }),
+    ),
+  generateBranchName: () =>
+    Effect.fail(
+      new TextGenerationError({
+        operation: "generateBranchName",
+        detail: "The Agy CLI does not support system text generation.",
+      }),
+    ),
+  generateThreadTitle: () =>
+    Effect.fail(
+      new TextGenerationError({
+        operation: "generateThreadTitle",
+        detail: "The Agy CLI does not support system text generation.",
+      }),
+    ),
+});
 const UPDATE = makeStaticProviderMaintenanceResolver(
   makeManualOnlyProviderMaintenanceCapabilities({
     provider: DRIVER_KIND,
@@ -66,6 +102,7 @@ const withInstanceIdentity =
   }) =>
   (snapshot: ServerProviderDraft): ServerProvider => ({
     ...snapshot,
+    supportsTextGeneration: false,
     instanceId: input.instanceId,
     driver: DRIVER_KIND,
     ...(input.displayName ? { displayName: input.displayName } : {}),
@@ -160,6 +197,7 @@ export const AgyDriver: ProviderDriver<AgySettings, AgyDriverEnv> = {
         enabled,
         snapshot,
         adapter,
+        textGeneration: unsupportedTextGeneration,
       };
     }),
 };

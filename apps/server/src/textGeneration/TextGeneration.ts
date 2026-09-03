@@ -73,15 +73,6 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
-export interface TextGenerationService {
-  generateCommitMessage(
-    input: CommitMessageGenerationInput,
-  ): Promise<CommitMessageGenerationResult>;
-  generatePrContent(input: PrContentGenerationInput): Promise<PrContentGenerationResult>;
-  generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
-  generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
-}
-
 /**
  * TextGeneration - Service tag for commit and change request text generation.
  */
@@ -116,9 +107,6 @@ export class TextGeneration extends Context.Service<
   }
 >()("t3/textGeneration/TextGeneration") {}
 
-/** @deprecated Use `TextGeneration["Service"]`. */
-export type TextGenerationShape = TextGeneration["Service"];
-
 type TextGenerationOp =
   | "generateCommitMessage"
   | "generatePrContent"
@@ -129,24 +117,17 @@ const resolveInstance = (
   registry: ProviderInstanceRegistry.ProviderInstanceRegistry["Service"],
   operation: TextGenerationOp,
   instanceId: ProviderInstanceId,
-): Effect.Effect<TextGeneration["Service"], TextGenerationError> =>
+): Effect.Effect<ProviderInstance["textGeneration"], TextGenerationError> =>
   registry.getInstance(instanceId).pipe(
     Effect.flatMap((instance) =>
-      !instance
-        ? Effect.fail(
+      instance
+        ? Effect.succeed(instance.textGeneration)
+        : Effect.fail(
             new TextGenerationError({
               operation,
               detail: `No provider instance registered for id '${instanceId}'.`,
             }),
-          )
-        : !instance.textGeneration
-          ? Effect.fail(
-              new TextGenerationError({
-                operation,
-                detail: `Provider instance '${instanceId}' does not support text generation.`,
-              }),
-            )
-          : Effect.succeed(instance.textGeneration),
+          ),
     ),
   );
 

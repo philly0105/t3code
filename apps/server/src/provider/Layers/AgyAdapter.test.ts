@@ -17,6 +17,7 @@ import {
   ThreadId,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
+import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import { makeMockAgyBinary } from "../agy/testSupport.ts";
 import { makeAgyAdapter } from "./AgyAdapter.ts";
@@ -27,7 +28,7 @@ const instanceId = ProviderInstanceId.make("agy");
 
 it.effect("streams a turn end to end and completes it", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: { ...process.env, AGY_MOCK_TOOL_NAME: "run_command" },
       instanceId,
@@ -51,13 +52,13 @@ it.effect("streams a turn end to end and completes it", () =>
     assert.strictEqual(types.at(-1), "turn.completed");
 
     const delta = events.find((event) => event.type === "content.delta");
-    assert.strictEqual((delta?.payload as { delta: string }).delta, "echo:");
+    assert.strictEqual(delta && (delta.payload as { delta: string }).delta, "echo:");
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 it.effect("declares model switching unsupported and rejects approvals", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: process.env,
       instanceId,
@@ -74,7 +75,7 @@ it.effect("declares model switching unsupported and rejects approvals", () =>
 
 it.effect("reports no session before start and none after stop, tearing child down", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: process.env,
       instanceId,
@@ -120,7 +121,7 @@ it.effect("reports no session before start and none after stop, tearing child do
 
 it.effect("handles a second turn on the same session across a single subscription", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: process.env,
       instanceId,
@@ -171,11 +172,12 @@ it.effect("handles a second turn on the same session across a single subscriptio
 it.live("interrupts a turn and allows a follow-up turn", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const platform = yield* HostProcessPlatform;
     const dir = yield* fs.makeTempDirectoryScoped();
 
     // Script emits 'init', an active step, then hangs for 500ms
     const crashScript =
-      process.platform === "win32" ? NodePath.join(dir, "hang.cmd") : NodePath.join(dir, "hang.sh");
+      platform === "win32" ? NodePath.join(dir, "hang.cmd") : NodePath.join(dir, "hang.sh");
 
     const nodeFile = NodePath.join(dir, "script.js");
     yield* fs.writeFileString(
@@ -190,11 +192,9 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
     const win32Script = `@echo off\r\n"${process.execPath}" "${nodeFile}"\r\n`;
     const unixScript = `#!/bin/sh\n"${process.execPath}" "${nodeFile}"\n`;
 
-    yield* fs.writeFileString(
-      crashScript,
-      process.platform === "win32" ? win32Script : unixScript,
-      { mode: 0o755 },
-    );
+    yield* fs.writeFileString(crashScript, platform === "win32" ? win32Script : unixScript, {
+      mode: 0o755,
+    });
 
     const adapter = yield* makeAgyAdapter(
       decodeAgySettings({ enabled: true, binaryPath: crashScript }),
@@ -278,20 +278,17 @@ it.live("interrupts a turn and allows a follow-up turn", () =>
 it.effect("fails sendTurn with ProviderAdapterProcessError on mid-turn process death", () =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const platform = yield* HostProcessPlatform;
     const dir = yield* fs.makeTempDirectoryScoped();
     const crashScript =
-      process.platform === "win32"
-        ? NodePath.join(dir, "crash.cmd")
-        : NodePath.join(dir, "crash.sh");
+      platform === "win32" ? NodePath.join(dir, "crash.cmd") : NodePath.join(dir, "crash.sh");
 
     const win32Script = `@echo off\r\necho {"event":"init","conversation_id":"mock-conv-3","init":{"runtime_mode":"full-access"}}\r\nexit 1\r\n`;
     const unixScript = `#!/bin/sh\necho '{"event":"init","conversation_id":"mock-conv-3","init":{"runtime_mode":"full-access"}}'\nexit 1\n`;
 
-    yield* fs.writeFileString(
-      crashScript,
-      process.platform === "win32" ? win32Script : unixScript,
-      { mode: 0o755 },
-    );
+    yield* fs.writeFileString(crashScript, platform === "win32" ? win32Script : unixScript, {
+      mode: 0o755,
+    });
 
     const adapter = yield* makeAgyAdapter(
       decodeAgySettings({ enabled: true, binaryPath: crashScript }),
@@ -313,7 +310,7 @@ it.effect("fails sendTurn with ProviderAdapterProcessError on mid-turn process d
 
 it.effect("recycles the agy process when interactionMode changes, preserving the session", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: { ...process.env, AGY_MOCK_TEST_MODE_OBS: "1" },
       instanceId,
@@ -385,7 +382,7 @@ it.effect("recycles the agy process when interactionMode changes, preserving the
 
 it.effect("returns the conversation id as a resume cursor so the next session can resume", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const adapter = yield* makeAgyAdapter(decodeAgySettings({ enabled: true, binaryPath }), {
       environment: { ...process.env, AGY_MOCK_CONVERSATION_ID: "conv-from-init" },
       instanceId,

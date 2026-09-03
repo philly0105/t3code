@@ -9,7 +9,7 @@
  * AGY_MOCK_FAIL             if "1", report status ERROR on the result
  * AGY_MOCK_HANG             if "1", never answer (for interrupt tests)
  */
-import * as readline from "node:readline";
+import * as NodeReadline from "node:readline";
 
 const conversationId = process.env["AGY_MOCK_CONVERSATION_ID"] ?? "mock-conv";
 const toolName = process.env["AGY_MOCK_TOOL_NAME"];
@@ -32,7 +32,7 @@ emit({
 
 let stepIndex = 0;
 
-readline.createInterface({ input: process.stdin }).on("line", (line) => {
+NodeReadline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (line.trim().length === 0 || shouldHang) return;
 
   let text = "";

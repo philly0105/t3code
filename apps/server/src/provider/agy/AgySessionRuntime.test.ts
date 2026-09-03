@@ -41,7 +41,7 @@ it("passes --conversation when resuming", () => {
 
 it.effect("streams decoded lines for one turn and reports the conversation id", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const agyProcess = yield* makeAgyProcess({
       settings: decodeAgySettings({ enabled: true, binaryPath }),
       cwd: NodeOS.tmpdir(),
@@ -63,7 +63,7 @@ it.effect("streams decoded lines for one turn and reports the conversation id", 
 
 it.effect("supports multiple turns on a single subscription and can be killed", () =>
   Effect.gen(function* () {
-    const binaryPath = yield* Effect.promise(() => makeMockAgyBinary());
+    const binaryPath = yield* makeMockAgyBinary();
     const agyProcess = yield* makeAgyProcess({
       settings: decodeAgySettings({ enabled: true, binaryPath }),
       cwd: NodeOS.tmpdir(),

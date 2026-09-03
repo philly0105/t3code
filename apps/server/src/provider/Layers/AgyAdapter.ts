@@ -79,6 +79,7 @@ const ResumeCursorSchema = Schema.Struct({
   schemaVersion: Schema.Literal(AGY_RESUME_VERSION),
   conversationId: Schema.optional(Schema.String),
 });
+const decodeResumeCursor = Schema.decodeUnknownOption(ResumeCursorSchema);
 
 export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOptions) {
   return Effect.gen(function* () {
@@ -224,7 +225,7 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
           const now = yield* nowIso;
           let conversationId: string | undefined = undefined;
           if (input.resumeCursor) {
-            const decodeResult = Schema.decodeUnknownOption(ResumeCursorSchema)(input.resumeCursor);
+            const decodeResult = decodeResumeCursor(input.resumeCursor);
             if (Option.isSome(decodeResult)) {
               conversationId = decodeResult.value.conversationId;
             }

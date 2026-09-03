@@ -28,7 +28,9 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
@@ -125,6 +127,14 @@ export interface AgyProfileMeta {
   readonly email: string | undefined;
 }
 
+const AgyProfileMetaJson = Schema.fromJsonString(
+  Schema.Struct({
+    User: Schema.optionalKey(Schema.String),
+    Email: Schema.optionalKey(Schema.String),
+  }),
+);
+const decodeAgyProfileMetaJson = Schema.decodeUnknownOption(AgyProfileMetaJson);
+
 /**
  * Read the sidecar the switcher writes beside `cred.bin`. `User` is the
  * credential's username, which has to go back with the blob, and `Email` is
@@ -139,14 +149,10 @@ export const readAgyProfileMeta = Effect.fn("readAgyProfileMeta")(function* (
     .readFileString(path.join(profileDirectory, "meta.json"))
     .pipe(Effect.orElseSucceed(() => ""));
 
-  // PowerShell's Set-Content -Encoding UTF8 leaves a BOM that JSON.parse rejects.
-  const parsed = yield* Effect.try(
-    () => JSON.parse(contents.replace(/^\uFEFF/, "")) as unknown,
-  ).pipe(Effect.orElseSucceed(() => undefined));
-  const record =
-    typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
-  const rawUser = record["User"];
-  const rawEmail = record["Email"];
+  // PowerShell's Set-Content -Encoding UTF8 can leave a BOM before the JSON.
+  const parsed = decodeAgyProfileMetaJson(contents.replace(/^\uFEFF/, ""));
+  const rawUser = Option.isSome(parsed) ? parsed.value.User : undefined;
+  const rawEmail = Option.isSome(parsed) ? parsed.value.Email : undefined;
   return {
     user: typeof rawUser === "string" && rawUser.trim() ? rawUser.trim() : DEFAULT_CREDENTIAL_USER,
     email: typeof rawEmail === "string" && rawEmail.trim() ? rawEmail.trim() : undefined,
