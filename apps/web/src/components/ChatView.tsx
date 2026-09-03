@@ -11,6 +11,7 @@ import {
   type ProviderApprovalDecision,
   type PreviewAnnotationPayload,
   ProviderInstanceId,
+  type ProviderLimitsSnapshot,
   type ServerProvider,
   type ResolvedKeybindingsConfig,
   type ScopedThreadRef,
@@ -56,6 +57,7 @@ import {
 import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
+import { formatPercent } from "@t3tools/shared/usageFormat";
 import {
   getTerminalLabel,
   nextTerminalId,
@@ -188,6 +190,7 @@ import {
   AlarmClockIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
+  GaugeIcon,
   GitBranchIcon,
   Minimize2Icon,
   PaperclipIcon,
@@ -323,6 +326,7 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+import { formatWindowReset } from "./limits/limitsPresentation";
 import {
   hasAvailableClaudeCompactionProvider,
   hasDismissedResumeCompaction,
@@ -5116,6 +5120,89 @@ function ChatViewContent(props: ChatViewProps) {
     }
     void handleSwitchCheckoutToThread();
   }, [gitStatusQuery.data?.hasWorkingTreeChanges, handleSwitchCheckoutToThread]);
+  // `/usage` pulls the account's quota straight from the provider CLI. The
+  // answer lands in a composer banner rather than the transcript: it is a fact
+  // about the account right now, not a turn worth replaying on revert.
+  const [usageBanner, setUsageBanner] = useState<{
+    readonly instanceId: ProviderInstanceId;
+    readonly displayName: string;
+    readonly snapshot: ProviderLimitsSnapshot | null;
+    readonly error: string | null;
+  } | null>(null);
+  const readProviderUsage = useAtomCommand(serverEnvironment.readProviderUsage, {
+    reportFailure: false,
+  });
+  const handleReadUsage = useCallback(
+    (instanceId: ProviderInstanceId) => {
+      const displayName =
+        deriveProviderInstanceEntries(providerStatuses).find(
+          (entry) => entry.instanceId === instanceId,
+        )?.displayName ?? instanceId;
+      setUsageBanner({ instanceId, displayName, snapshot: null, error: null });
+      void (async () => {
+        const result = await readProviderUsage({
+          environmentId,
+          input: { providerInstanceId: instanceId },
+        });
+        if (result._tag === "Failure") {
+          if (isAtomCommandInterrupted(result)) return;
+          const failure = squashAtomCommandFailure(result);
+          setUsageBanner({
+            instanceId,
+            displayName,
+            snapshot: null,
+            error:
+              failure instanceof Error ? failure.message : "Could not read this account's limits.",
+          });
+          return;
+        }
+        setUsageBanner({ instanceId, displayName, snapshot: result.value, error: null });
+      })();
+    },
+    [environmentId, providerStatuses, readProviderUsage],
+  );
+
+  const usageBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+    if (usageBanner === null) return null;
+    const dismiss = () => setUsageBanner(null);
+    if (usageBanner.error !== null) {
+      return {
+        id: `usage:${usageBanner.instanceId}`,
+        variant: "error",
+        icon: <GaugeIcon />,
+        title: `Could not read ${usageBanner.displayName} limits`,
+        description: usageBanner.error,
+        dismissLabel: "Dismiss usage notice",
+        onDismiss: dismiss,
+      };
+    }
+    const snapshot = usageBanner.snapshot;
+    return {
+      id: `usage:${usageBanner.instanceId}`,
+      variant: "info",
+      urgent: true,
+      icon: <GaugeIcon />,
+      title: `${usageBanner.displayName} limits`,
+      description:
+        snapshot === null ? (
+          "Asking the provider…"
+        ) : snapshot.windows.length === 0 ? (
+          "This account reported no quota windows."
+        ) : (
+          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 tabular-nums">
+            {snapshot.windows.map((window) => (
+              <span key={window.key}>
+                {window.label} {formatPercent(Math.min(window.utilization, 1), 0)}
+                {formatWindowReset(window)}
+              </span>
+            ))}
+          </span>
+        ),
+      dismissLabel: "Dismiss usage notice",
+      onDismiss: dismiss,
+    };
+  }, [usageBanner]);
+
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const isUrgentSystemItem = (item: ComposerBannerStackItem) =>
       item.urgent === true || item.variant === "error" || item.variant === "warning";
@@ -5123,6 +5210,8 @@ function ChatViewContent(props: ChatViewProps) {
     const calmSystemItems = systemComposerBannerItems.filter((item) => !isUrgentSystemItem(item));
     const backgroundLivenessItems =
       backgroundLivenessBannerItem === null ? [] : [backgroundLivenessBannerItem];
+    // The user just asked for this, so it fronts everything but urgent items.
+    const usageItems = usageBannerItem === null ? [] : [usageBannerItem];
     const resumeCompactionItems =
       resumeCompactionBannerItem === null ? [] : [resumeCompactionBannerItem];
     const wokeThreadItems = wokeThreadBannerItem === null ? [] : [wokeThreadBannerItem];
@@ -5130,6 +5219,7 @@ function ChatViewContent(props: ChatViewProps) {
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...urgentSystemItems,
+        ...usageItems,
         ...backgroundLivenessItems,
         ...calmSystemItems,
         ...resumeCompactionItems,
@@ -5139,6 +5229,7 @@ function ChatViewContent(props: ChatViewProps) {
     }
     return [
       ...urgentSystemItems,
+      ...usageItems,
       ...backgroundLivenessItems,
       ...calmSystemItems,
       ...resumeCompactionItems,
@@ -5194,6 +5285,7 @@ function ChatViewContent(props: ChatViewProps) {
     resumeCompactionBannerItem,
     showBranchMismatchBanner,
     systemComposerBannerItems,
+    usageBannerItem,
     wokeThreadBannerItem,
   ]);
   useEffect(() => {
@@ -7435,6 +7527,7 @@ function ChatViewContent(props: ChatViewProps) {
                               onChangeActivePendingUserInputCustomAnswer
                             }
                             onProviderModelSelect={onProviderModelSelect}
+                            onReadUsage={handleReadUsage}
                             getModelDisabledReason={getModelDisabledReason}
                             toggleInteractionMode={toggleInteractionMode}
                             handleRuntimeModeChange={handleRuntimeModeChange}

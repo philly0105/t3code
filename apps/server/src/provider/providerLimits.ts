@@ -157,6 +157,19 @@ export function parseProviderLimits(
 }
 
 /**
+ * Folds a reading pulled on demand (`/usage`) into an instance's snapshot.
+ *
+ * The pull is authoritative for the windows it reports, but it knows nothing
+ * about the token counters accumulated from turns, so those survive it.
+ */
+export function mergePulledReading(
+  previous: ProviderLimitsSnapshot | undefined,
+  pulled: ProviderLimitsSnapshot,
+): ProviderLimitsSnapshot {
+  return { ...previous, ...pulled };
+}
+
+/**
  * Folds a turn's token count into an instance's running total.
  *
  * Recorded for every provider but only meaningful for those that report no

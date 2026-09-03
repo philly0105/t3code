@@ -318,14 +318,24 @@ export function buildCodexInitializeParams(): CodexSchema.V1InitializeParams {
   };
 }
 
-const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (input: {
+export interface CodexAppServerLaunch {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly launchArgs?: string;
   readonly cwd: string;
-  readonly customModels?: ReadonlyArray<string>;
   readonly environment?: NodeJS.ProcessEnv;
-}) {
+}
+
+/**
+ * Spawns a short-lived `codex app-server` and completes its handshake.
+ *
+ * Scoped: the process dies with the caller's scope. Account-level reads such as
+ * `account/rateLimits/read` take no thread, so they can run here instead of
+ * needing a live session.
+ */
+export const acquireCodexAppServerClient = Effect.fn("acquireCodexAppServerClient")(function* (
+  input: CodexAppServerLaunch,
+) {
   // `~` is not shell-expanded when env vars are set via `child_process.spawn`,
   // so `CODEX_HOME=~/.codex_work` would reach codex verbatim and trip
   // "CODEX_HOME points to '~/.codex_work', but that path does not exist".
@@ -383,6 +393,16 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   // Extract the version string after the first '/' in userAgent, up to the next space or the end
   const versionMatch = initialize.userAgent.match(/\/([^\s]+)/);
   const version = versionMatch ? versionMatch[1] : undefined;
+
+  return { client, version };
+});
+
+const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(function* (
+  input: CodexAppServerLaunch & {
+    readonly customModels?: ReadonlyArray<string>;
+  },
+) {
+  const { client, version } = yield* acquireCodexAppServerClient(input);
 
   const accountResponse = yield* client.request("account/read", {});
   if (!accountResponse.account && accountResponse.requiresOpenaiAuth) {

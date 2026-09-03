@@ -10,36 +10,7 @@ import { SidebarInset } from "../ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-
-/** `1788414600` to `10:50 PM` or `Sep 7, 3:00 PM` when it is not today. */
-function formatReset(epochSeconds: number): string {
-  const date = new Date(epochSeconds * 1000);
-  if (Number.isNaN(date.getTime())) return "";
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return new Intl.DateTimeFormat("en-US", {
-    ...(sameDay ? {} : { month: "short", day: "numeric" }),
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
-/** `2026-09-02T21:14:03Z` to `3m ago`. */
-function formatAge(observedAt: string): string {
-  const ms = Date.now() - Date.parse(observedAt);
-  if (Number.isNaN(ms) || ms < 0) return "just now";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-function barColor(utilization: number): string {
-  if (utilization >= 1) return "bg-destructive";
-  if (utilization >= 0.8) return "bg-amber-500";
-  return "bg-primary";
-}
+import { barColor, formatAge, formatWindowReset } from "./limitsPresentation";
 
 function AccountCard(props: { row: ProviderLimitsRow; showEnvironment: boolean }) {
   const { snapshot } = props.row;
@@ -82,7 +53,7 @@ function AccountCard(props: { row: ProviderLimitsRow; showEnvironment: boolean }
                 <span className="truncate text-muted-foreground">{window.label}</span>
                 <span className="shrink-0 text-foreground tabular-nums">
                   {formatPercent(Math.min(window.utilization, 1), 0)}
-                  {window.resetsAt === undefined ? "" : ` · resets ${formatReset(window.resetsAt)}`}
+                  {formatWindowReset(window)}
                 </span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -95,8 +66,8 @@ function AccountCard(props: { row: ProviderLimitsRow; showEnvironment: boolean }
           ))}
         </div>
       ) : (
-        // Antigravity publishes no quota, so tokens T3 has driven through the
-        // account are the only signal available for it.
+        // Nothing has reported a window for this account yet, so tokens T3 has
+        // driven through it are the only signal available.
         <div className="flex items-baseline justify-between gap-4 text-xs">
           <span className="text-muted-foreground">
             No quota reported · {formatCount(snapshot.turns ?? 0)}{" "}

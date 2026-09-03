@@ -17,7 +17,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
 import { forkParked } from "../../serverActivation.ts";
-import { foldProviderLimitEvent } from "../providerLimits.ts";
+import { foldProviderLimitEvent, mergePulledReading } from "../providerLimits.ts";
 import { ProviderLimitsService, type ProviderLimitsShape } from "../Services/ProviderLimits.ts";
 import { ProviderService } from "../Services/ProviderService.ts";
 
@@ -41,13 +41,23 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const record: ProviderLimitsShape["record"] = (snapshot) =>
+    Ref.update(snapshots, (current) => {
+      const updated = new Map(current);
+      updated.set(
+        snapshot.providerInstanceId,
+        mergePulledReading(current.get(snapshot.providerInstanceId), snapshot),
+      );
+      return updated;
+    });
+
   const list = Ref.get(snapshots).pipe(
     Effect.map((current) =>
       Array.from(current.values()).sort((a, b) => b.observedAt.localeCompare(a.observedAt)),
     ),
   );
 
-  return { start, list } satisfies ProviderLimitsShape;
+  return { start, list, record } satisfies ProviderLimitsShape;
 });
 
 export const ProviderLimitsLive = Layer.effect(ProviderLimitsService, make);

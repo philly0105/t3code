@@ -782,6 +782,17 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.serverGetProviderLimits,
       staleTimeMs: 5_000,
     }),
+    // Pulls a fresh reading straight from the provider CLI. Costs a subprocess
+    // spawn, so it is a command the user triggers, never a background poll.
+    // One in flight per environment: the agy read holds a credential lock.
+    readProviderUsage: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:read-provider-usage",
+      tag: WS_METHODS.serverReadProviderUsage,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId }) => environmentId,
+      },
+    }),
     configProjection,
     welcome: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:welcome",

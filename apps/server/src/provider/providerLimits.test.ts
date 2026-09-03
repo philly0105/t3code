@@ -10,6 +10,7 @@ import { describe, expect, it } from "@effect/vitest";
 import {
   accumulateTokenUsage,
   foldProviderLimitEvent,
+  mergePulledReading,
   parseProviderLimits,
 } from "./providerLimits.ts";
 
@@ -195,5 +196,39 @@ describe("foldProviderLimitEvent", () => {
         payload: { state: "completed" },
       } as ProviderRuntimeEvent),
     ).toBeUndefined();
+  });
+});
+
+describe("mergePulledReading", () => {
+  const pulled = {
+    providerInstanceId: ProviderInstanceId.make("agy_a1"),
+    provider: ProviderDriverKind.make("agy"),
+    windows: [{ key: "weekly", label: "Weekly", utilization: 0.4 }],
+    observedAt: "2026-09-02T21:14:03.000Z",
+  };
+
+  it("keeps token counters a `/usage` pull knows nothing about", () => {
+    const folded = foldProviderLimitEvent(undefined, {
+      eventId: EventId.make("11111111-1111-4111-8111-111111111111"),
+      provider: ProviderDriverKind.make("agy"),
+      providerInstanceId: ProviderInstanceId.make("agy_a1"),
+      threadId: ThreadId.make("22222222-2222-4222-8222-222222222222"),
+      createdAt: "2026-09-03T04:00:00.000Z",
+      type: "turn.completed",
+      payload: { state: "completed", usage: { usedTokens: 900 } },
+    } as ProviderRuntimeEvent);
+    const merged = mergePulledReading(folded, pulled);
+    expect(merged.tokensUsed).toBe(900);
+    expect(merged.turns).toBe(1);
+    expect(merged.windows).toEqual(pulled.windows);
+    expect(merged.observedAt).toBe(pulled.observedAt);
+  });
+
+  it("replaces the windows a previous reading reported", () => {
+    const merged = mergePulledReading(
+      { ...pulled, windows: [{ key: "5h", label: "5-hour", utilization: 0.99 }] },
+      pulled,
+    );
+    expect(merged.windows).toEqual(pulled.windows);
   });
 });

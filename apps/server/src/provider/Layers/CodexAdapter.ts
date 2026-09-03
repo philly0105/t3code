@@ -64,6 +64,8 @@ import {
   type CodexSessionRuntimeShape,
 } from "./CodexSessionRuntime.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { acquireCodexAppServerClient } from "./CodexProvider.ts";
+import { parseCodexUsageReport } from "../providerUsage.ts";
 import { resolveCodexLaunchArgs } from "./codexLaunchArgs.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
 const isCodexAppServerTransportError = Schema.is(CodexErrors.CodexAppServerTransportError);
@@ -2006,11 +2008,48 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     ),
   );
 
+  // Account reads take no thread, so this spawns its own short-lived
+  // app-server rather than borrowing a session's. Costs no turn and no tokens.
+  const readUsage: CodexAdapterShape["readUsage"] = () =>
+    Effect.gen(function* () {
+      const { client } = yield* acquireCodexAppServerClient({
+        binaryPath: codexConfig.binaryPath,
+        launchArgs: resolveCodexLaunchArgs(codexConfig.launchArgs, options?.environment),
+        cwd: process.cwd(),
+        ...(codexConfig.homePath ? { homePath: codexConfig.homePath } : {}),
+        ...(options?.environment ? { environment: options.environment } : {}),
+      });
+      const response = yield* client.request("account/rateLimits/read", undefined);
+      const reading = parseCodexUsageReport(response);
+      if (!reading) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "readUsage",
+          detail: "Codex reported no account limits.",
+        });
+      }
+      return reading;
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterRequestError"
+          ? cause
+          : new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "readUsage",
+              detail: "Failed to read Codex account limits.",
+              cause,
+            }),
+      ),
+    );
+
   return {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
     },
+    readUsage,
     startSession,
     sendTurn,
     interruptTurn,

@@ -49,6 +49,7 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   ProviderUploadFeedbackError,
+  ProviderUsageReadError,
   RelayClientInstallFailedError,
   type RelayClientInstallProgressEvent,
   type ServerSelfUpdateError,
@@ -1774,6 +1775,25 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.serverGetProviderLimits,
             providerLimits.list.pipe(Effect.map((snapshots) => ({ snapshots }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverReadProviderUsage]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.serverReadProviderUsage,
+            providerService.readUsage(input.providerInstanceId).pipe(
+              // A pulled reading is worth keeping: file it so the limits panel
+              // shows what the caller just saw.
+              Effect.tap((snapshot) => providerLimits.record(snapshot)),
+              Effect.mapError(
+                (cause) =>
+                  new ProviderUsageReadError({
+                    reason:
+                      cause._tag === "ProviderUnsupportedError" ? "unsupported" : "readFailed",
+                    detail: cause.message,
+                    cause,
+                  }),
+              ),
+            ),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) =>

@@ -81,6 +81,7 @@ describe("OrchestrationReactor", () => {
               return Effect.void;
             },
             list: Effect.succeed([]),
+            record: () => Effect.void,
           }),
         ),
       ),

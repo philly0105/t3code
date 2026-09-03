@@ -12,16 +12,26 @@ Each configured account gets a row, using the display name and accent color you 
 settings. A row marked **limit reached** means the provider rejected the last request for that
 account.
 
-## Readings arrive during turns
+## Check limits from chat
 
-Claude Code and Codex publish their quota while a turn is running, not on demand. Until an account
-has run at least one turn since the server started, it has nothing to show. After that the page
-holds the last reading and labels how old it is, so a row can be minutes or hours stale. Refresh
-re-reads what each environment currently knows; it does not make providers re-report.
+For Claude Code, Codex, and Antigravity, open the composer's slash-command menu and select
+`/usage`. T3 Code asks the selected provider account for its current quota without starting a turn
+or spending tokens. The result appears above the composer and also updates that account on the
+Limits page.
+
+Other providers do not offer this command. Their limits can appear only when the provider reports
+them during a turn.
+
+## Last-known readings
+
+Claude Code and Codex also publish quota while a turn is running. The Limits page keeps the newest
+reading for each account and labels how old it is, so a row can be minutes or hours stale. Refresh
+re-reads what each environment currently knows; it does not ask providers for a new reading. Use
+`/usage` when you need a current value.
 
 ## Antigravity
 
-Antigravity publishes no quota, so its rows show tokens instead of windows: the tokens and turns
-T3 Code has driven through that account since the server started. Because Antigravity's accounts
-share one credential store on your machine, T3 Code is the only thing that can attribute a turn to
-the account that ran it. These counters restart when the server restarts.
+Antigravity reports quota when you select `/usage`. Before the first check, its row shows the tokens
+and turns T3 Code has driven through that account since the server started. Because Antigravity's
+accounts share one credential store on your machine, T3 Code is the only thing that can attribute a
+turn to the account that ran it. These counters restart when the server restarts.

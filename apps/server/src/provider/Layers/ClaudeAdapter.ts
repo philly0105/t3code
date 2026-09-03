@@ -19,6 +19,10 @@ import {
   type SDKUserMessage,
   type ModelUsage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { spawnAndCollect } from "../providerSnapshot.ts";
+import { parseClaudeUsageReport, parseJsonOrUndefined } from "../providerUsage.ts";
 import { parseCliArgs } from "@t3tools/shared/cliArgs";
 import {
   ApprovalRequestId,
@@ -1684,6 +1688,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("claudeAgent");
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const serverConfig = yield* ServerConfig;
   const crypto = yield* Crypto.Crypto;
   const claudeEnvironment = yield* makeClaudeEnvironment(claudeSettings, options?.environment).pipe(
@@ -4712,11 +4717,52 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     ),
   );
 
+  // `claude -p /usage` is answered by the CLI, not the model: it reports
+  // `num_turns: 0` and no cost. The printed text is the same one the TUI shows.
+  const readUsage: ClaudeAdapterShape["readUsage"] = () =>
+    Effect.gen(function* () {
+      const spawnCommand = yield* resolveSpawnCommand(
+        claudeSettings.binaryPath,
+        ["-p", "/usage", "--output-format", "json"],
+        { env: claudeEnvironment },
+      );
+      const result = yield* spawnAndCollect(
+        claudeSettings.binaryPath,
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          env: claudeEnvironment,
+          shell: spawnCommand.shell,
+          stdin: "ignore",
+        }),
+      );
+      const reading = parseClaudeUsageReport(parseJsonOrUndefined(result.stdout));
+      if (!reading) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "readUsage",
+          detail: "Claude reported no account limits.",
+        });
+      }
+      return reading;
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, childProcessSpawner),
+      Effect.mapError((cause) =>
+        cause._tag === "ProviderAdapterRequestError"
+          ? cause
+          : new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "readUsage",
+              detail: "Failed to run `claude -p /usage`.",
+              cause,
+            }),
+      ),
+    );
+
   return {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
     },
+    readUsage,
     startSession,
     sendTurn,
     interruptTurn,

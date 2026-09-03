@@ -13,6 +13,7 @@
  */
 import type {
   ProviderInterruptTurnInput,
+  ProviderLimitsSnapshot,
   ProviderInstanceId,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -98,6 +99,17 @@ export interface ProviderServiceShape {
   readonly getInstanceInfo: (
     instanceId: ProviderInstanceId,
   ) => Effect.Effect<ProviderInstanceRoutingInfo, ProviderServiceError>;
+
+  /**
+   * Ask an instance's provider for its current account quota.
+   *
+   * Needs no session and starts no turn. Fails with an unsupported error for
+   * a provider whose CLI has no such read, which is every driver except
+   * Claude, Codex and Antigravity.
+   */
+  readonly readUsage: (
+    instanceId: ProviderInstanceId,
+  ) => Effect.Effect<ProviderLimitsSnapshot, ProviderServiceError>;
 
   /**
    * Roll back provider conversation state by a number of turns.

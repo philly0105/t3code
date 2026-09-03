@@ -21,6 +21,11 @@ export interface ProviderLimitsShape {
   readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   /** Latest reading per provider instance, most recently observed first. */
   readonly list: Effect.Effect<ReadonlyArray<ProviderLimitsSnapshot>>;
+  /**
+   * File a reading pulled on demand, so a `/usage` run also freshens the
+   * limits panel instead of only answering the caller.
+   */
+  readonly record: (snapshot: ProviderLimitsSnapshot) => Effect.Effect<void>;
 }
 
 export class ProviderLimitsService extends Context.Service<
@@ -34,5 +39,6 @@ export const layerTest = Layer.succeed(
   ProviderLimitsService.of({
     start: () => Effect.void,
     list: Effect.succeed([]),
+    record: () => Effect.void,
   }),
 );

@@ -411,6 +411,11 @@ describe("parseStandaloneComposerSlashCommand", () => {
     expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
   });
 
+  it("leaves UI-only commands to the composer menu", () => {
+    expect(parseStandaloneComposerSlashCommand("/model")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/usage")).toBeNull();
+  });
+
   it("ignores slash commands with extra message text", () => {
     expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
   });

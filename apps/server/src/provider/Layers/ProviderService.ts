@@ -48,7 +48,11 @@ import {
   providerTurnMetricAttributes,
   withMetrics,
 } from "../../observability/Metrics.ts";
-import { type ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
+import {
+  type ProviderAdapterError,
+  ProviderUnsupportedError,
+  ProviderValidationError,
+} from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderService from "../Services/ProviderService.ts";
@@ -1116,6 +1120,28 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     );
   });
 
+  const readUsage: ProviderServiceMethod<"readUsage"> = Effect.fn("readUsage")(
+    function* (instanceId) {
+      const adapter = yield* registry.getByInstance(instanceId);
+      const read = adapter.readUsage;
+      if (read === undefined) {
+        return yield* new ProviderUnsupportedError({ provider: adapter.provider });
+      }
+      yield* Effect.annotateCurrentSpan({
+        "provider.operation": "read-usage",
+        "provider.kind": adapter.provider,
+        "provider.instance_id": instanceId,
+      });
+      const reading = yield* read();
+      return {
+        ...reading,
+        providerInstanceId: instanceId,
+        provider: adapter.provider,
+        observedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+    },
+  );
+
   const uploadFeedback: ProviderServiceMethod<"uploadFeedback"> = Effect.fn("uploadFeedback")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1227,6 +1253,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     listSessions,
     getCapabilities,
     getInstanceInfo,
+    readUsage,
     rollbackConversation,
     uploadFeedback,
     // Each access creates a fresh PubSub subscription so that multiple

@@ -3,13 +3,16 @@
  *
  * Distinct from `usage.ts`: that one scans provider transcripts to reconstruct
  * historical token spend, this one reports the subscription quota a provider
- * pushed at us mid-turn ("5-hour window 87% used, resets 10:50 PM"). The
- * providers only volunteer it while a turn is running, so a reading is always
- * last-known-value with an `observedAt` for the client to age.
+ * reports ("5-hour window 87% used, resets 10:50 PM").
  *
- * Antigravity reports no quota at all, so its snapshots carry `tokensUsed`
- * instead of `windows`. T3 is the only thing that can attribute those tokens
- * to an account, since agy shares one OS credential entry across profiles.
+ * Readings arrive two ways. Claude and Codex push theirs mid-turn, which makes
+ * a pushed reading last-known-value with an `observedAt` for the client to age.
+ * All three of Claude, Codex and Antigravity can also be asked directly, which
+ * costs no turn and no tokens; see `provider/providerUsage`.
+ *
+ * `tokensUsed` is the fallback for a provider that reports no window at all.
+ * T3 is the only thing that can attribute agy's tokens to an account, since
+ * agy shares one OS credential entry across profiles.
  *
  * @module providerLimits
  */
@@ -28,6 +31,11 @@ export const ProviderLimitWindow = Schema.Struct({
   utilization: Schema.Number,
   /** Epoch seconds at which the window rolls over, when the provider says. */
   resetsAt: Schema.optional(Schema.Number),
+  /**
+   * Reset time as the provider worded it, for providers that only print a
+   * human string (`Sep 3, 1:30am`). Rendered when `resetsAt` is absent.
+   */
+  resetsLabel: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProviderLimitWindow = typeof ProviderLimitWindow.Type;
 
@@ -51,3 +59,34 @@ export const ProviderLimitsReport = Schema.Struct({
   snapshots: Schema.Array(ProviderLimitsSnapshot),
 });
 export type ProviderLimitsReport = typeof ProviderLimitsReport.Type;
+
+/**
+ * Drivers whose CLI answers a quota question without running a turn.
+ *
+ * The server is authoritative — it checks whether the adapter implements the
+ * read — but a client needs this to decide whether to offer `/usage` at all.
+ */
+const USAGE_READ_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex", "agy"]);
+
+export const supportsUsageRead = (provider: ProviderDriverKind): boolean =>
+  USAGE_READ_DRIVERS.has(provider);
+
+/** Which instance to ask. The provider answers for the account it is signed in as. */
+export const ProviderUsageReadInput = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+});
+export type ProviderUsageReadInput = typeof ProviderUsageReadInput.Type;
+
+export class ProviderUsageReadError extends Schema.TaggedErrorClass<ProviderUsageReadError>()(
+  "ProviderUsageReadError",
+  {
+    reason: Schema.Literals(["unsupported", "readFailed"]),
+    /** Stable, bounded description. The underlying failure travels in `cause`. */
+    detail: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return `Provider usage read failed (${this.reason}): ${this.detail}`;
+  }
+}

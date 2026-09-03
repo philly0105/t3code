@@ -25,6 +25,8 @@ import type {
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 
+import type { ProviderUsageReading } from "../providerUsage.ts";
+
 export type ProviderSessionModelSwitchMode = "in-session" | "unsupported";
 
 export interface ProviderAdapterCapabilities {
@@ -122,6 +124,13 @@ export interface ProviderAdapterShape<TError> {
   readonly uploadFeedback?: (
     input: ProviderUploadFeedbackInput,
   ) => Effect.Effect<ProviderUploadFeedbackResult, TError>;
+
+  /**
+   * Read the account's current quota, for adapters whose CLI answers without
+   * running a turn. Absent when the provider offers no such read, in which
+   * case the only readings available are the ones it pushes mid-turn.
+   */
+  readonly readUsage?: () => Effect.Effect<ProviderUsageReading, TError>;
 
   /**
    * Stop all sessions owned by this adapter.

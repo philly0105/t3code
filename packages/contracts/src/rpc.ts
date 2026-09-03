@@ -193,7 +193,12 @@ import {
   ResourceTelemetrySnapshot,
 } from "./resourceTelemetry.ts";
 import { UsageReadError, UsageSummary, UsageSummaryInput } from "./usage.ts";
-import { ProviderLimitsReport } from "./providerLimits.ts";
+import {
+  ProviderLimitsReport,
+  ProviderLimitsSnapshot,
+  ProviderUsageReadError,
+  ProviderUsageReadInput,
+} from "./providerLimits.ts";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings.ts";
 import {
   SourceControlCloneRepositoryInput,
@@ -293,6 +298,7 @@ export const WS_METHODS = {
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
   serverGetUsageSummary: "server.getUsageSummary",
   serverGetProviderLimits: "server.getProviderLimits",
+  serverReadProviderUsage: "server.readProviderUsage",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -459,6 +465,12 @@ export const WsServerGetProviderLimitsRpc = Rpc.make(WS_METHODS.serverGetProvide
   payload: Schema.Struct({}),
   success: ProviderLimitsReport,
   error: EnvironmentAuthorizationError,
+});
+
+export const WsServerReadProviderUsageRpc = Rpc.make(WS_METHODS.serverReadProviderUsage, {
+  payload: ProviderUsageReadInput,
+  success: ProviderLimitsSnapshot,
+  error: Schema.Union([EnvironmentAuthorizationError, ProviderUsageReadError]),
 });
 
 export const WsServerSignalProcessRpc = Rpc.make(WS_METHODS.serverSignalProcess, {
@@ -1053,6 +1065,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerGetUsageSummaryRpc,
   WsServerGetProviderLimitsRpc,
+  WsServerReadProviderUsageRpc,
   WsServerSignalProcessRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,

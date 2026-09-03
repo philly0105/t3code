@@ -23,8 +23,10 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
+import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { resolveSpawnCommand } from "@t3tools/shared/shell";
 
 import {
   ProviderAdapterProcessError,
@@ -33,6 +35,8 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type AgyAdapterShape } from "../Services/AgyAdapter.ts";
+import { spawnAndCollect } from "../providerSnapshot.ts";
+import { parseAgyUsageReport, parseJsonOrUndefined } from "../providerUsage.ts";
 import { restoreAgyCredentialProfile, withAgyAccountLock } from "../agy/AgyCredentialProfile.ts";
 import { type AgyProcess, makeAgyProcess } from "../agy/AgySessionRuntime.ts";
 import {
@@ -683,10 +687,82 @@ export function makeAgyAdapter(settings: AgySettings, options?: AgyAdapterLiveOp
       ),
     );
 
+    // `agy -p /usage` is answered by the CLI itself rather than by the model:
+    // no turn, no tokens, no conversation left behind. The answer is per
+    // account, so it needs the same credential dance as a session spawn.
+    const runUsageCommand = Effect.gen(function* () {
+      const binaryPath = settings.binaryPath || "agy";
+      const spawnCommand = yield* resolveSpawnCommand(
+        binaryPath,
+        ["-p", "/usage", "--output-format", "json", "--print-timeout", "30s"],
+        { env: environment },
+      );
+      const result = yield* spawnAndCollect(
+        binaryPath,
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          env: environment,
+          shell: spawnCommand.shell,
+          stdin: "ignore",
+        }),
+      );
+      return result.stdout;
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.mapError(
+        (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "readUsage",
+            detail: "Failed to run `agy -p /usage`.",
+            cause,
+          }),
+      ),
+    );
+
+    const readUsage: AgyAdapterShape["readUsage"] = () =>
+      Effect.gen(function* () {
+        const credentialProfile = settings.credentialProfile;
+        const stdout = credentialProfile
+          ? yield* withAgyAccountLock(
+              Effect.gen(function* () {
+                yield* restoreAgyCredentialProfile({
+                  profile: credentialProfile,
+                  environment: environment as NodeJS.ProcessEnv,
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                  Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderAdapterRequestError({
+                        provider: PROVIDER,
+                        method: "readUsage",
+                        detail: cause.detail,
+                        cause,
+                      }),
+                  ),
+                );
+                return yield* runUsageCommand;
+              }),
+            )
+          : yield* runUsageCommand;
+
+        const reading = parseAgyUsageReport(parseJsonOrUndefined(stdout));
+        if (!reading) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "readUsage",
+            detail: "Antigravity reported no account limits.",
+          });
+        }
+        return reading;
+      });
+
     return {
       provider: PROVIDER,
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
       capabilities: { sessionModelSwitch: "unsupported" },
+      readUsage,
       startSession,
       stopSession,
       stopAll,
