@@ -37,6 +37,10 @@ export interface AgyProcess {
  * `agy`'s parser takes the argument after a bare `-p`/`--print` as the
  * prompt, so the flag must be attached with `=`. Everything else may follow
  * in any order.
+ *
+ * `--print-timeout` defaults to 5m, which kills any turn that runs longer and
+ * leaves `Error: timeout waiting for response` on stdout. T3 owns turn
+ * lifetime through interrupts, so the cap is pushed past any real turn.
  */
 export function buildAgyLaunchArgs(input: {
   readonly model?: string;
@@ -49,6 +53,8 @@ export function buildAgyLaunchArgs(input: {
     "stream-json",
     "--output-format",
     "stream-json",
+    "--print-timeout",
+    "24h",
     "--dangerously-skip-permissions",
     "--mode",
     input.interactionMode === "plan" ? "plan" : "accept-edits",

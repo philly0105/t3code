@@ -25,6 +25,13 @@ it("attaches the prompt flag with = and never as a bare argument", () => {
   assert.include(args, "--dangerously-skip-permissions");
 });
 
+it("overrides the 5m print-mode timeout that would cut long turns short", () => {
+  const args = buildAgyLaunchArgs({});
+  const index = args.indexOf("--print-timeout");
+  assert.isAtLeast(index, 0);
+  assert.strictEqual(args[index + 1], "24h");
+});
+
 it("passes --conversation when resuming", () => {
   const args = buildAgyLaunchArgs({ conversationId: "conv-9" });
   const index = args.indexOf("--conversation");
