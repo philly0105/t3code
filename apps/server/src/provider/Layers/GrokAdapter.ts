@@ -68,6 +68,7 @@ import {
   readGrokAcpBilling,
   resolveGrokAcpBaseModelId,
 } from "../acp/GrokAcpSupport.ts";
+import { isGrokAcpBillingUnsupported, readGrokCliProxyBilling } from "../acp/GrokBilling.ts";
 import { parseGrokUsageReport } from "../providerUsage.ts";
 import {
   extractGrokPlanMarkdownFromToolCallData,
@@ -2112,16 +2113,26 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     const streamEvents = Stream.fromPubSub(runtimeEventPubSub);
 
-    // Account reads take no thread. `x.ai/billing` is answered by the CLI after
-    // a headless authenticate; it is not a turn and does not open a session.
+    // Account reads take no thread. Prefer ACP `x.ai/billing` (the TUI path).
+    // grok agent stdio on current CLIs returns method-not-found for that
+    // extension, so fall back to the CLI proxy the extension itself calls.
+    const usageEnvironment = options?.environment ?? hostEnvironment;
     const readUsage: GrokAdapterShape["readUsage"] = () =>
       Effect.gen(function* () {
         const response = yield* readGrokAcpBilling({
           grokSettings,
-          ...(options?.environment ? { environment: options.environment } : {}),
+          environment: usageEnvironment,
           childProcessSpawner,
           cwd: serverConfig.cwd,
-        });
+        }).pipe(
+          Effect.catchIf(isGrokAcpBillingUnsupported, () =>
+            readGrokCliProxyBilling({
+              fileSystem,
+              path,
+              environment: usageEnvironment,
+            }),
+          ),
+        );
         const reading = parseGrokUsageReport(response);
         if (!reading) {
           return yield* new ProviderAdapterRequestError({

@@ -59,7 +59,10 @@ session's current model" and never sends it in `session/set_model`.
 On-demand `/usage` quota reads spawn a short-lived ACP process, authenticate
 headless, and call the `x.ai/billing` extension. They do not send `session/new`,
 so they cannot boot MCP servers or spend a turn. Headless `grok -p /usage` is a
-real model turn and is not used.
+real model turn and is not used. `grok agent stdio` on current CLIs answers
+`x.ai/billing` with JSON-RPC method-not-found; those reads fall back to
+`GET {cli-chat-proxy}/billing?format=credits` using the cached `~/.grok/auth.json`
+token, which is the same credits config the extension handler fetches.
 
 ## Antigravity ownership and protocol
 
