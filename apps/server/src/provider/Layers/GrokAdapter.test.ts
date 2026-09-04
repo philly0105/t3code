@@ -213,6 +213,36 @@ it("requires a settlement to match the live Grok turn", () => {
 });
 
 it.layer(grokAdapterTestLayer)("GrokAdapterLive", (it) => {
+  it.effect("reads Grok account limits without opening a session", () =>
+    Effect.gen(function* () {
+      const tempDir = yield* Effect.promise(() =>
+        NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "grok-acp-usage-")),
+      );
+      const requestLogPath = NodePath.join(tempDir, "requests.ndjson");
+      const wrapperPath = yield* Effect.promise(() =>
+        makeMockGrokWrapper({
+          T3_ACP_REQUEST_LOG_PATH: requestLogPath,
+        }),
+      );
+      const adapter = yield* makeTestAdapter(wrapperPath);
+      const readUsage = adapter.readUsage;
+      assert.isFunction(readUsage);
+      if (readUsage === undefined) return;
+      const reading = yield* readUsage();
+
+      assert.equal(reading.planType, "SuperGrok");
+      assert.equal(reading.windows[0]?.key, "weekly");
+      assert.equal(reading.windows[0]?.utilization, 0.425);
+
+      const raw = yield* waitForFileContent(requestLogPath, 80, '"method":"x.ai/billing"');
+      assert.include(raw, '"method":"initialize"');
+      assert.include(raw, '"method":"authenticate"');
+      assert.include(raw, '"method":"x.ai/billing"');
+      assert.notInclude(raw, '"method":"session/new"');
+      assert.notInclude(raw, '"method":"session/prompt"');
+    }),
+  );
+
   it.effect("starts a session and maps mock ACP prompt flow to runtime events", () =>
     Effect.gen(function* () {
       const threadId = ThreadId.make("grok-mock-thread");

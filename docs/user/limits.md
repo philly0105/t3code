@@ -14,7 +14,7 @@ account.
 
 ## Check limits from chat
 
-For Claude Code, Codex, and Antigravity, open the composer's slash-command menu and select
+For Claude Code, Codex, Antigravity, and Grok, open the composer's slash-command menu and select
 `/usage`. T3 Code asks the selected provider account for its current quota without starting a turn
 or spending tokens. The result appears above the composer and also updates that account on the
 Limits page.

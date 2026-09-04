@@ -56,6 +56,11 @@ list instead of persisting `error` over a working install. The built-in `grok-bu
 CLI's product name, not an ACP model id. `applyGrokAcpModelSelection` treats it as "keep the
 session's current model" and never sends it in `session/set_model`.
 
+On-demand `/usage` quota reads spawn a short-lived ACP process, authenticate
+headless, and call the `x.ai/billing` extension. They do not send `session/new`,
+so they cannot boot MCP servers or spend a turn. Headless `grok -p /usage` is a
+real model turn and is not used.
+
 ## Antigravity ownership and protocol
 
 [`AntigravityDriver`][antigravity] uses Google's official ACP executable. The instance config

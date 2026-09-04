@@ -7,7 +7,7 @@
  *
  * Readings arrive two ways. Claude and Codex push theirs mid-turn, which makes
  * a pushed reading last-known-value with an `observedAt` for the client to age.
- * All three of Claude, Codex and Antigravity can also be asked directly, which
+ * Claude, Codex, Antigravity, and Grok can also be asked directly, which
  * costs no turn and no tokens; see `provider/providerUsage`.
  *
  * `tokensUsed` is the fallback for a provider that reports no window at all.
@@ -66,7 +66,7 @@ export type ProviderLimitsReport = typeof ProviderLimitsReport.Type;
  * The server is authoritative — it checks whether the adapter implements the
  * read — but a client needs this to decide whether to offer `/usage` at all.
  */
-const USAGE_READ_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex", "agy"]);
+const USAGE_READ_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex", "agy", "grok"]);
 
 export const supportsUsageRead = (provider: ProviderDriverKind): boolean =>
   USAGE_READ_DRIVERS.has(provider);

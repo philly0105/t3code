@@ -5,6 +5,7 @@ import {
   parseClaudeUsageReport,
   parseClaudeUsageText,
   parseCodexUsageReport,
+  parseGrokUsageReport,
 } from "./providerUsage.ts";
 
 // Captured verbatim from `claude -p "/usage" --output-format json` so the
@@ -143,6 +144,86 @@ describe("parseCodexUsageReport", () => {
         { key: "secondary", label: "Weekly", utilization: 0.14, resetsAt: 1788756169 },
       ],
     });
+  });
+});
+
+// Captured from Grok's ACP `x.ai/billing` credits-config shape (and the
+// `billing: fetched credits config` unified-log payload, which is the same
+// object). creditUsagePercent is 0–100, not a 0–1 fraction.
+const GROK_CREDITS = {
+  config: {
+    creditUsagePercent: 42.5,
+    currentPeriod: {
+      type: "USAGE_PERIOD_TYPE_WEEKLY",
+      start: "2026-06-01T00:00:00Z",
+      end: "2026-06-08T00:00:00Z",
+    },
+    onDemandCap: { val: 5000 },
+    onDemandUsed: { val: 300 },
+    prepaidBalance: { val: 1250 },
+    isUnifiedBillingUser: true,
+  },
+  onDemandEnabled: true,
+  subscriptionTier: "SuperGrok",
+};
+
+const GROK_LEGACY_BILLING = {
+  config: {
+    monthlyLimit: { val: 2000 },
+    used: { val: 500 },
+    billingPeriodEnd: "2025-05-01T00:00:00Z",
+  },
+};
+
+describe("parseGrokUsageReport", () => {
+  it("reads the credits-config percent, period, and on-demand window", () => {
+    expect(parseGrokUsageReport(GROK_CREDITS)).toEqual({
+      planType: "SuperGrok",
+      windows: [
+        {
+          key: "weekly",
+          label: "Weekly",
+          utilization: 0.425,
+          resetsAt: Math.floor(Date.parse("2026-06-08T00:00:00Z") / 1000),
+        },
+        {
+          key: "on_demand",
+          label: "On-demand",
+          utilization: 300 / 5000,
+        },
+      ],
+    });
+  });
+
+  it("falls back to the older monthlyLimit/used cents shape", () => {
+    expect(parseGrokUsageReport(GROK_LEGACY_BILLING)).toEqual({
+      windows: [
+        {
+          key: "monthly",
+          label: "Monthly",
+          utilization: 0.25,
+          resetsAt: Math.floor(Date.parse("2025-05-01T00:00:00Z") / 1000),
+        },
+      ],
+    });
+  });
+
+  it("returns undefined when the answer carries no limits", () => {
+    expect(parseGrokUsageReport({ config: null })).toBeUndefined();
+    expect(parseGrokUsageReport({ config: {} })).toBeUndefined();
+    expect(parseGrokUsageReport({ status: "ok" })).toBeUndefined();
+  });
+
+  it("skips a zero on-demand cap", () => {
+    const reading = parseGrokUsageReport({
+      config: {
+        creditUsagePercent: 10,
+        currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY" },
+        onDemandCap: { val: 0 },
+        onDemandUsed: { val: 0 },
+      },
+    });
+    expect(reading?.windows.map((window) => window.key)).toEqual(["weekly"]);
   });
 });
 

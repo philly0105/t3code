@@ -2,7 +2,7 @@
  * Normalizes the providers' on-demand usage reports into `ProviderLimitWindow`.
  *
  * Distinct from `providerLimits.ts`, which folds the quota providers volunteer
- * mid-turn. Every reading here is pulled on request, and all three sources cost
+ * mid-turn. Every reading here is pulled on request, and each source costs
  * no turn and no tokens:
  *
  * - Claude: `claude -p /usage --output-format json`, whose `result` is the same
@@ -11,6 +11,8 @@
  *   the shape `parseProviderLimits` reads.
  * - Antigravity: `agy -p /usage --output-format json`, which answers with
  *   structured groups of buckets under `command.data`.
+ * - Grok: the ACP extension `x.ai/billing`, which is the same credits config
+ *   the TUI `/usage` screen fetches. Headless `-p /usage` is a real turn.
  *
  * Pure and Effect-free; the spawning lives in the adapters.
  *
@@ -149,4 +151,83 @@ export function parseAgyUsageReport(raw: unknown): ProviderUsageReading | undefi
     }
   }
   return windows.length === 0 ? undefined : { windows };
+}
+
+function labelForGrokPeriod(periodType: string | undefined): string {
+  if (periodType === "USAGE_PERIOD_TYPE_WEEKLY" || periodType === "weekly") return "Weekly";
+  if (periodType === "USAGE_PERIOD_TYPE_MONTHLY" || periodType === "monthly") return "Monthly";
+  if (periodType === "USAGE_PERIOD_TYPE_DAILY" || periodType === "daily") return "Daily";
+  return "Limit";
+}
+
+function epochSecondsFromIso(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const resetsAt = Date.parse(value) / 1000;
+  return Number.isFinite(resetsAt) ? Math.floor(resetsAt) : undefined;
+}
+
+function centValue(raw: unknown): number | undefined {
+  return asNumber(asRecord(raw)?.["val"]);
+}
+
+function clampUtilization(value: number): number {
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
+/**
+ * Grok's `x.ai/billing` answer: included credit usage as a 0–100 percent, a
+ * weekly or monthly period, and optional on-demand spend. The CLI also still
+ * serves the older `monthlyLimit`/`used` cents shape.
+ */
+export function parseGrokUsageReport(raw: unknown): ProviderUsageReading | undefined {
+  const envelope = asRecord(raw);
+  const config = asRecord(envelope?.["config"]) ?? envelope;
+  if (!config) return undefined;
+
+  const windows: Array<ProviderLimitWindow> = [];
+  const period = asRecord(config["currentPeriod"]);
+  const periodLabel = labelForGrokPeriod(asString(period?.["type"]));
+  const resetsAt =
+    epochSecondsFromIso(asString(period?.["end"])) ??
+    epochSecondsFromIso(asString(config["billingPeriodEnd"]));
+
+  const creditUsagePercent = asNumber(config["creditUsagePercent"]);
+  if (creditUsagePercent !== undefined) {
+    windows.push({
+      key: slugify(periodLabel),
+      label: periodLabel,
+      utilization: clampUtilization(creditUsagePercent / 100),
+      ...(resetsAt === undefined ? {} : { resetsAt }),
+    });
+  } else {
+    const monthlyLimit = centValue(config["monthlyLimit"]);
+    const used = centValue(config["used"]);
+    if (monthlyLimit !== undefined && monthlyLimit > 0 && used !== undefined) {
+      windows.push({
+        key: "monthly",
+        label: "Monthly",
+        utilization: clampUtilization(used / monthlyLimit),
+        ...(resetsAt === undefined ? {} : { resetsAt }),
+      });
+    }
+  }
+
+  const onDemandCap = centValue(config["onDemandCap"]);
+  const onDemandUsed = centValue(config["onDemandUsed"]) ?? 0;
+  if (onDemandCap !== undefined && onDemandCap > 0) {
+    windows.push({
+      key: "on_demand",
+      label: "On-demand",
+      utilization: clampUtilization(onDemandUsed / onDemandCap),
+    });
+  }
+
+  if (windows.length === 0) return undefined;
+  const planType = asString(envelope?.["subscriptionTier"]);
+  return {
+    windows,
+    ...(planType === undefined ? {} : { planType }),
+  };
 }

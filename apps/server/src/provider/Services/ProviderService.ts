@@ -105,7 +105,7 @@ export interface ProviderServiceShape {
    *
    * Needs no session and starts no turn. Fails with an unsupported error for
    * a provider whose CLI has no such read, which is every driver except
-   * Claude, Codex and Antigravity.
+   * Claude, Codex, Antigravity, and Grok.
    */
   readonly readUsage: (
     instanceId: ProviderInstanceId,

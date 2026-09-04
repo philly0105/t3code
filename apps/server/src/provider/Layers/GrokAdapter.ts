@@ -65,8 +65,10 @@ import {
   currentGrokReasoningEffortFromSessionSetup,
   makeGrokAcpRuntime,
   normalizeGrokReasoningEffort,
+  readGrokAcpBilling,
   resolveGrokAcpBaseModelId,
 } from "../acp/GrokAcpSupport.ts";
+import { parseGrokUsageReport } from "../providerUsage.ts";
 import {
   extractGrokPlanMarkdownFromToolCallData,
   extractXAiAskUserQuestions,
@@ -2110,9 +2112,43 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
 
     const streamEvents = Stream.fromPubSub(runtimeEventPubSub);
 
+    // Account reads take no thread. `x.ai/billing` is answered by the CLI after
+    // a headless authenticate; it is not a turn and does not open a session.
+    const readUsage: GrokAdapterShape["readUsage"] = () =>
+      Effect.gen(function* () {
+        const response = yield* readGrokAcpBilling({
+          grokSettings,
+          ...(options?.environment ? { environment: options.environment } : {}),
+          childProcessSpawner,
+          cwd: serverConfig.cwd,
+        });
+        const reading = parseGrokUsageReport(response);
+        if (!reading) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "readUsage",
+            detail: "Grok reported no account limits.",
+          });
+        }
+        return reading;
+      }).pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+        Effect.mapError((cause) =>
+          cause._tag === "ProviderAdapterRequestError"
+            ? cause
+            : new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "readUsage",
+                detail: "Failed to read Grok account limits.",
+                cause,
+              }),
+        ),
+      );
+
     return {
       provider: PROVIDER,
       capabilities: { sessionModelSwitch: "in-session" },
+      readUsage,
       startSession,
       sendTurn,
       interruptTurn,

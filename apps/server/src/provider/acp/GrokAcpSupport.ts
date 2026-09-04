@@ -17,6 +17,8 @@ const T3_CODE_OAUTH_REFERRER = "t3code";
 const GROK_AUTH_METHOD_API_KEY = "xai.api_key";
 const GROK_AUTH_METHOD_CACHED_TOKEN = "cached_token";
 const GROK_DRIVER_KIND = ProviderDriverKind.make("grok");
+/** ACP extension the Grok TUI `/usage` screen uses. Not a model turn. */
+export const GROK_ACP_BILLING_METHOD = "x.ai/billing";
 
 type GrokAcpRuntimeGrokSettings = Pick<GrokSettings, "binaryPath">;
 
@@ -67,6 +69,36 @@ function resolveGrokAuthMethodId(environment: NodeJS.ProcessEnv | undefined): st
     ? GROK_AUTH_METHOD_API_KEY
     : GROK_AUTH_METHOD_CACHED_TOKEN;
 }
+
+/**
+ * Ask Grok for the signed-in account's quota without opening a session.
+ *
+ * `session/new` boots MCP servers; `authenticate` can open a browser login.
+ * This path initializes, authenticates headless, then calls `x.ai/billing`,
+ * which is the same RPC the TUI `/usage` screen uses. The process is scoped
+ * to the call so a `/usage` read cannot leak an ACP child.
+ */
+export const readGrokAcpBilling = (input: {
+  readonly grokSettings: GrokAcpRuntimeGrokSettings | null | undefined;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
+  readonly cwd: string;
+}): Effect.Effect<unknown, EffectAcpErrors.AcpError, Crypto.Crypto> =>
+  Effect.gen(function* () {
+    const acp = yield* makeGrokAcpRuntime({
+      grokSettings: input.grokSettings,
+      ...(input.environment ? { environment: input.environment } : {}),
+      childProcessSpawner: input.childProcessSpawner,
+      cwd: input.cwd,
+      clientInfo: { name: "t3-code-usage-read", version: "0.0.0" },
+    });
+    yield* acp.initialize();
+    yield* acp.request("authenticate", {
+      methodId: resolveGrokAuthMethodId(input.environment),
+      _meta: { headless: true },
+    });
+    return yield* acp.request(GROK_ACP_BILLING_METHOD, {});
+  }).pipe(Effect.scoped);
 
 export const makeGrokAcpRuntime = (
   input: GrokAcpRuntimeInput,

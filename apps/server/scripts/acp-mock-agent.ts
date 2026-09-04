@@ -1232,6 +1232,21 @@ const program = Effect.gen(function* () {
   );
 
   yield* agent.handleUnknownExtRequest((method, params) => {
+    if (method === "x.ai/billing") {
+      return Effect.succeed({
+        config: {
+          creditUsagePercent: 42.5,
+          currentPeriod: {
+            type: "USAGE_PERIOD_TYPE_WEEKLY",
+            start: "2026-06-01T00:00:00Z",
+            end: "2026-06-08T00:00:00Z",
+          },
+          onDemandCap: { val: 0 },
+          onDemandUsed: { val: 0 },
+        },
+        subscriptionTier: "SuperGrok",
+      });
+    }
     if (method === "_test/environment") {
       return Effect.succeed({
         inherited: process.env.T3_ACP_RUNTIME_AMBIENT === "sentinel",
