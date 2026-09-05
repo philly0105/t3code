@@ -53,7 +53,33 @@ const CODEX_PAYLOAD = {
   },
 };
 
+// Adapters now normalize their native reports before emitting, so the event
+// carries this shape rather than a provider-specific blob. Raw payloads still
+// reach the parser from on-demand `/usage` pulls.
+const NORMALIZED_PAYLOAD = {
+  limits: {
+    windows: [
+      {
+        id: "five_hour",
+        kind: "session",
+        label: "5-hour",
+        usedPercent: 100,
+        resetsAt: "2026-09-04T12:30:00.000Z",
+      },
+      { id: "seven_day", kind: "weekly", label: "Weekly", usedPercent: 12 },
+    ],
+  },
+};
+
 describe("parseProviderLimits", () => {
+  it("reads the normalized windows adapters now emit", () => {
+    const parsed = parseProviderLimits(NORMALIZED_PAYLOAD);
+    expect(parsed?.windows).toEqual([
+      { key: "five_hour", label: "5-hour", utilization: 1, resetsAt: 1788525000 },
+      { key: "seven_day", label: "Weekly", utilization: 0.12 },
+    ]);
+  });
+
   it("reads Claude's named windows and rejection status", () => {
     const parsed = parseProviderLimits(CLAUDE_PAYLOAD);
     expect(parsed?.status).toBe("rejected");
@@ -152,7 +178,7 @@ describe("foldProviderLimitEvent", () => {
       ...base,
       providerInstanceId: ProviderInstanceId.make("claudeAgent_alt"),
       type: "account.rate-limits.updated",
-      payload: CLAUDE_PAYLOAD,
+      payload: NORMALIZED_PAYLOAD,
     } as ProviderRuntimeEvent);
     expect(next?.providerInstanceId).toBe("claudeAgent_alt");
     expect(next?.windows.map((window) => window.label)).toEqual(["5-hour", "Weekly"]);
@@ -162,7 +188,7 @@ describe("foldProviderLimitEvent", () => {
     const next = foldProviderLimitEvent(undefined, {
       ...base,
       type: "account.rate-limits.updated",
-      payload: CLAUDE_PAYLOAD,
+      payload: NORMALIZED_PAYLOAD,
     } as ProviderRuntimeEvent);
     expect(next?.providerInstanceId).toBe("claudeAgent");
   });

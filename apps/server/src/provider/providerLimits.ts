@@ -133,10 +133,46 @@ function parseCodexWindows(info: Record<string, unknown>): ReadonlyArray<Provide
  * Returns undefined when the payload carries no window we can render, so the
  * caller can leave the previous reading in place rather than blanking it.
  */
+/**
+ * Upstream's normalized shape: adapters fold their native reports into
+ * `ProviderUsageLimitsUpdate` before emitting, so the event carries
+ * `limits.windows` instead of a provider-specific blob. On-demand `/usage`
+ * pulls still hand us raw provider payloads, so both paths stay readable.
+ */
+function parseNormalizedWindows(
+  payload: Record<string, unknown>,
+): ReadonlyArray<ProviderLimitWindow> {
+  const windows = asRecord(payload["limits"])?.["windows"];
+  if (!Array.isArray(windows)) return [];
+  return windows.flatMap((entry) => {
+    const window = asRecord(entry);
+    const key = asString(window?.["id"]);
+    const usedPercent = asNumber(window?.["usedPercent"]);
+    if (!window || !key || usedPercent === undefined) return [];
+    // The normalized window dates its reset as ISO; ours is epoch seconds.
+    const resetsAtIso = asString(window["resetsAt"]);
+    const resetsAtMs = resetsAtIso === undefined ? Number.NaN : Date.parse(resetsAtIso);
+    const resetsAt = Number.isFinite(resetsAtMs) ? Math.floor(resetsAtMs / 1000) : undefined;
+    return [
+      {
+        key,
+        label: asString(window["label"]) ?? humanizeKey(key),
+        // Normalized windows report 0..100; the snapshot is always a fraction.
+        utilization: usedPercent / 100,
+        ...(resetsAt === undefined ? {} : { resetsAt }),
+      },
+    ];
+  });
+}
+
 export function parseProviderLimits(
   rawPayload: unknown,
 ): Pick<ProviderLimitsSnapshot, "status" | "planType" | "windows"> | undefined {
   const payload = asRecord(rawPayload);
+  if (payload) {
+    const normalized = parseNormalizedWindows(payload);
+    if (normalized.length > 0) return { windows: normalized };
+  }
   const rateLimits = asRecord(payload?.["rateLimits"]) ?? payload;
   if (!rateLimits) return undefined;
 
