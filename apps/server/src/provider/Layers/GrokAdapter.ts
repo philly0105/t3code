@@ -2175,6 +2175,7 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
       provider: PROVIDER,
       capabilities: { sessionModelSwitch: "in-session" },
       readUsage,
+      compaction: { type: "slash-command", command: "/compact" },
       startSession,
       sendTurn,
       interruptTurn,
