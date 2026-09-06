@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 
 import type * as Electron from "electron";
@@ -18,6 +19,10 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 function makeElectronAppLayer(
   appListeners: Map<string, (...args: readonly unknown[]) => void>,
   quit: Effect.Effect<void> = Effect.void,
+  hooks: {
+    readonly exit?: (code: number) => Effect.Effect<void>;
+    readonly relaunch?: (options: Electron.RelaunchOptions) => Effect.Effect<void>;
+  } = {},
 ) {
   const registerListener = (eventName: string, listener: (...args: readonly unknown[]) => void) =>
     Effect.acquireRelease(
@@ -36,8 +41,8 @@ function makeElectronAppLayer(
     systemLocale: Effect.succeed("en-US"),
     whenReady: Effect.void,
     quit,
-    exit: () => Effect.void,
-    relaunch: () => Effect.void,
+    exit: hooks.exit ?? (() => Effect.void),
+    relaunch: hooks.relaunch ?? (() => Effect.void),
     setPath: () => Effect.void,
     setName: () => Effect.void,
     setAboutPanelOptions: () => Effect.void,
@@ -249,6 +254,132 @@ describe("DesktopLifecycle", () => {
           assert.equal(activationCount, 0);
         }),
       ).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("relaunches via APPIMAGE path when running as AppImage", () =>
+    Effect.gen(function* () {
+      const appListeners = new Map<string, (...args: readonly unknown[]) => void>();
+      const relaunchCalls: Electron.RelaunchOptions[] = [];
+      const exitCodes: number[] = [];
+      let windowsDestroyed = false;
+
+      const shutdownRequested = yield* Deferred.make<void>();
+      const allowShutdown = yield* Deferred.make<void>();
+      const exited = yield* Deferred.make<void>();
+
+      const desktopShutdownLayer = Layer.succeed(DesktopShutdown.DesktopShutdown, {
+        request: Deferred.succeed(shutdownRequested, undefined).pipe(Effect.asVoid),
+        awaitRequest: Deferred.await(shutdownRequested),
+        markComplete: Deferred.succeed(allowShutdown, undefined).pipe(Effect.asVoid),
+        awaitComplete: Deferred.await(allowShutdown),
+        isComplete: Deferred.isDone(allowShutdown),
+      });
+
+      const environmentLayer = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+        platform: "linux",
+        isDevelopment: false,
+        appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
+      } as DesktopEnvironment.DesktopEnvironment["Service"]);
+
+      const layer = DesktopLifecycle.layer.pipe(
+        Layer.provideMerge(
+          makeElectronAppLayer(appListeners, Effect.void, {
+            relaunch: (options) =>
+              Effect.sync(() => {
+                relaunchCalls.push(options);
+              }),
+            exit: (code) =>
+              Effect.sync(() => {
+                exitCodes.push(code);
+              }).pipe(Effect.andThen(Deferred.succeed(exited, undefined)), Effect.asVoid),
+          }),
+        ),
+        Layer.provideMerge(electronThemeLayer),
+        Layer.provideMerge(
+          makeElectronWindowLayer(
+            Effect.sync(() => {
+              windowsDestroyed = true;
+            }),
+          ),
+        ),
+        Layer.provideMerge(makeDesktopWindowLayer()),
+        Layer.provideMerge(environmentLayer),
+        Layer.provideMerge(desktopShutdownLayer),
+        Layer.provideMerge(DesktopState.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+        yield* lifecycle.relaunch("tailscale-serve-enabled");
+        yield* Deferred.await(shutdownRequested);
+        assert.isTrue(windowsDestroyed);
+        yield* Deferred.succeed(allowShutdown, undefined);
+        yield* Deferred.await(exited);
+
+        assert.deepEqual(relaunchCalls, [
+          {
+            execPath: "/home/alice/Applications/T3-Code.AppImage",
+            args: [],
+          },
+        ]);
+        assert.deepEqual(exitCodes, [0]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("relaunches with process.execPath when not running as AppImage", () =>
+    Effect.gen(function* () {
+      const appListeners = new Map<string, (...args: readonly unknown[]) => void>();
+      const relaunchCalls: Electron.RelaunchOptions[] = [];
+      const exited = yield* Deferred.make<void>();
+
+      const shutdownRequested = yield* Deferred.make<void>();
+      const allowShutdown = yield* Deferred.make<void>();
+
+      const desktopShutdownLayer = Layer.succeed(DesktopShutdown.DesktopShutdown, {
+        request: Deferred.succeed(shutdownRequested, undefined).pipe(Effect.asVoid),
+        awaitRequest: Deferred.await(shutdownRequested),
+        markComplete: Deferred.succeed(allowShutdown, undefined).pipe(Effect.asVoid),
+        awaitComplete: Deferred.await(allowShutdown),
+        isComplete: Deferred.isDone(allowShutdown),
+      });
+
+      const environmentLayer = Layer.succeed(DesktopEnvironment.DesktopEnvironment, {
+        platform: "linux",
+        isDevelopment: false,
+        appImagePath: Option.none(),
+      } as DesktopEnvironment.DesktopEnvironment["Service"]);
+
+      const layer = DesktopLifecycle.layer.pipe(
+        Layer.provideMerge(
+          makeElectronAppLayer(appListeners, Effect.void, {
+            relaunch: (options) =>
+              Effect.sync(() => {
+                relaunchCalls.push(options);
+              }),
+            exit: () => Deferred.succeed(exited, undefined).pipe(Effect.asVoid),
+          }),
+        ),
+        Layer.provideMerge(electronThemeLayer),
+        Layer.provideMerge(makeElectronWindowLayer()),
+        Layer.provideMerge(makeDesktopWindowLayer()),
+        Layer.provideMerge(environmentLayer),
+        Layer.provideMerge(desktopShutdownLayer),
+        Layer.provideMerge(DesktopState.layer),
+      );
+
+      yield* Effect.gen(function* () {
+        const lifecycle = yield* DesktopLifecycle.DesktopLifecycle;
+        yield* lifecycle.relaunch("server-exposure-mode=network-accessible");
+        yield* Deferred.await(shutdownRequested);
+        yield* Deferred.succeed(allowShutdown, undefined);
+        yield* Deferred.await(exited);
+
+        assert.equal(relaunchCalls.length, 1);
+        assert.equal(relaunchCalls[0]?.execPath, process.execPath);
+        assert.deepEqual(relaunchCalls[0]?.args, process.argv.slice(1));
+      }).pipe(Effect.provide(layer));
     }),
   );
 });
