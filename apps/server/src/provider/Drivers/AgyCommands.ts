@@ -18,6 +18,32 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
 /**
+ * The commands the CLI itself expands. They are not files on disk and the CLI
+ * has no way to list them, so the menu would otherwise never show them even
+ * though typing `/boost` already works. Names and descriptions track
+ * https://antigravity.google/docs/slash-commands/; a command Google gates
+ * behind a paid plan still lists here and fails at the CLI, same as typing it
+ * by hand.
+ *
+ * ponytail: a hardcoded list, because there is nothing to ask. Replace it the
+ * day `agy` grows a discovery command.
+ */
+const BUILTIN_COMMANDS: ReadonlyArray<ServerProviderSlashCommand> = [
+  { name: "boost", description: "Multi-agent deep reasoning for complex bugs and algorithms." },
+  { name: "browser", description: "Launches a sandboxed browser subagent for web research." },
+  { name: "btw", description: "Asks a quick contextual question without pausing work." },
+  { name: "goal", description: "Autonomous execution until the goal is achieved." },
+  { name: "grill-me", description: "Interviews you to align on design details and edge cases." },
+  { name: "learn", description: "Distills session feedback into persistent Rules or Skills." },
+  { name: "plan", description: "Researches code and generates a reviewable plan artifact." },
+  { name: "schedule", description: "Schedules an instruction as a timer or recurring cron job." },
+  {
+    name: "teamwork-preview",
+    description: "Collaborative agent teams for repo-scale migrations and research.",
+  },
+];
+
+/**
  * Reads the `description` key out of a command TOML.
  *
  * ponytail: deliberately not a TOML parser — the menu needs one single-line
@@ -96,10 +122,11 @@ const collectCommandsUnder = Effect.fn("collectAgyCommandsUnder")(function* (
 });
 
 /**
- * Enumerate Antigravity slash commands from the roots the CLI reads: user
- * commands, then plugin and extension commands, then the workspace's own
- * `.gemini/commands`. Later roots win on name collisions, so a project
- * command overrides a user one of the same name.
+ * Enumerate Antigravity slash commands: the CLI's own builtins, then the
+ * roots the CLI reads, being user commands, plugin and extension commands,
+ * and finally the workspace's own `.gemini/commands`. Later sources win on
+ * name collisions, so a project command overrides a user one of the same
+ * name, and any file on disk overrides a builtin.
  */
 export const discoverAgyCommands = Effect.fn("discoverAgyCommands")(function* (
   cwd?: string,
@@ -137,7 +164,9 @@ export const discoverAgyCommands = Effect.fn("discoverAgyCommands")(function* (
     ...(cwd ? [path.join(cwd, ".gemini", "commands")] : []),
   ];
 
-  const commandsByName = new Map<string, ServerProviderSlashCommand>();
+  const commandsByName = new Map<string, ServerProviderSlashCommand>(
+    BUILTIN_COMMANDS.map((command) => [command.name, command]),
+  );
   for (const root of roots) {
     for (const command of yield* collectCommandsUnder(root)) {
       commandsByName.set(command.name, command);

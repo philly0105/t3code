@@ -55,7 +55,9 @@ it.layer(NodeServices.layer)("discoverAgyCommands", (it) => {
         }),
       );
 
-      expect(commands.map((command) => command.name)).toEqual(["mine", "ponytail-help", "stitch"]);
+      expect(commands.map((command) => command.name)).toEqual(
+        expect.arrayContaining(["mine", "ponytail-help", "stitch"]),
+      );
       expect(commands.find((command) => command.name === "stitch")?.description).toBe(
         "Design tool",
       );
@@ -76,7 +78,7 @@ it.layer(NodeServices.layer)("discoverAgyCommands", (it) => {
         }),
       );
 
-      expect(commands.map((command) => command.name)).toEqual(["git:commit"]);
+      expect(commands.map((command) => command.name)).toContain("git:commit");
     }),
   );
 
@@ -95,12 +97,14 @@ it.layer(NodeServices.layer)("discoverAgyCommands", (it) => {
         }),
       );
 
-      expect(commands).toHaveLength(1);
-      expect(commands[0]?.description).toBe("Project version");
+      expect(commands.filter((command) => command.name === "deploy")).toHaveLength(1);
+      expect(commands.find((command) => command.name === "deploy")?.description).toBe(
+        "Project version",
+      );
     }),
   );
 
-  it.effect("returns nothing when no command roots exist", () =>
+  it.effect("still offers the CLI's builtins when no command roots exist", () =>
     Effect.gen(function* () {
       const commands = yield* Effect.scoped(
         Effect.gen(function* () {
@@ -112,7 +116,36 @@ it.layer(NodeServices.layer)("discoverAgyCommands", (it) => {
         }),
       );
 
-      expect(commands).toEqual([]);
+      expect(commands.map((command) => command.name)).toEqual([
+        "boost",
+        "browser",
+        "btw",
+        "goal",
+        "grill-me",
+        "learn",
+        "plan",
+        "schedule",
+        "teamwork-preview",
+      ]);
+    }),
+  );
+
+  it.effect("lets a file on disk override a builtin of the same name", () =>
+    Effect.gen(function* () {
+      const commands = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const root = yield* writeCommandTree({
+            "gemini/commands/plan.toml": 'description = "My own plan"',
+          });
+          const path = yield* Path.Path;
+          return yield* discoverAgyCommands(undefined, {
+            GEMINI_HOME: path.join(root, "gemini"),
+          });
+        }),
+      );
+
+      expect(commands.filter((command) => command.name === "plan")).toHaveLength(1);
+      expect(commands.find((command) => command.name === "plan")?.description).toBe("My own plan");
     }),
   );
 });
