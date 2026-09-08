@@ -94,6 +94,20 @@ const withStore = <A, E, R>(
     return yield* effect.pipe(Effect.provide(makeLayer(baseDir, encryptionAvailable)));
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped);
 
+const readQuarantinedCatalogs = (stateDir: string) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const entries = yield* fileSystem.readDirectory(stateDir);
+    const contents: string[] = [];
+    for (const entry of entries) {
+      if (entry.startsWith("connection-catalog.json.corrupt-")) {
+        contents.push(yield* fileSystem.readFileString(path.join(stateDir, entry)));
+      }
+    }
+    return contents;
+  });
+
 describe("DesktopConnectionCatalogStore", () => {
   it.effect("persists, reads, and clears an encrypted connection catalog", () =>
     withStore(
@@ -224,7 +238,7 @@ describe("DesktopConnectionCatalogStore", () => {
     ),
   );
 
-  it.effect("surfaces malformed catalog documents without deleting them", () =>
+  it.effect("quarantines malformed catalog documents instead of blocking the client", () =>
     withStore(
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -235,14 +249,9 @@ describe("DesktopConnectionCatalogStore", () => {
         yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
         yield* fileSystem.writeFileString(catalogPath, "{not-json");
 
-        const error = yield* store.get.pipe(Effect.flip);
-        assert.instanceOf(
-          error,
-          DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreDocumentDecodeError,
-        );
-        assert.equal(error.catalogPath, catalogPath);
-        assert.exists(error.cause);
-        assert.equal(yield* fileSystem.readFileString(catalogPath), "{not-json");
+        assert.isTrue(Option.isNone(yield* store.get));
+        assert.isFalse(yield* fileSystem.exists(catalogPath));
+        assert.deepStrictEqual(yield* readQuarantinedCatalogs(environment.stateDir), ["{not-json"]);
       }),
     ),
   );
@@ -357,7 +366,7 @@ describe("DesktopConnectionCatalogStore", () => {
     ),
   );
 
-  it.effect("reports invalid encrypted catalog data without exposing it", () =>
+  it.effect("quarantines invalid encrypted catalog data instead of blocking the client", () =>
     withStore(
       Effect.gen(function* () {
         const path = yield* Path.Path;
@@ -365,27 +374,18 @@ describe("DesktopConnectionCatalogStore", () => {
         const fileSystem = yield* FileSystem.FileSystem;
         const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
         const catalogPath = path.join(environment.stateDir, "connection-catalog.json");
+        const stored = '{"version":1,"encryptedCatalog":"%%%"}\n';
         yield* fileSystem.makeDirectory(environment.stateDir, { recursive: true });
-        yield* fileSystem.writeFileString(catalogPath, '{"version":1,"encryptedCatalog":"%%%"}\n');
+        yield* fileSystem.writeFileString(catalogPath, stored);
 
-        const error = yield* store.get.pipe(Effect.flip);
-        assert.instanceOf(
-          error,
-          DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreDecodeError,
-        );
-        assert.equal(error.resource, "encryptedCatalog");
-        assert.equal(error.catalogPath, catalogPath);
-        assert.exists(error.cause);
-        assert.equal(
-          error.message,
-          `Failed to decode encryptedCatalog for the desktop connection catalog at ${catalogPath}.`,
-        );
-        assert.notInclude(error.message, "%%%");
+        assert.isTrue(Option.isNone(yield* store.get));
+        assert.isFalse(yield* fileSystem.exists(catalogPath));
+        assert.deepStrictEqual(yield* readQuarantinedCatalogs(environment.stateDir), [stored]);
       }),
     ),
   );
 
-  it.effect("surfaces a catalog that can no longer be decrypted without deleting it", () =>
+  it.effect("quarantines a catalog that can no longer be decrypted", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -397,26 +397,20 @@ describe("DesktopConnectionCatalogStore", () => {
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
         Effect.provide(layer),
       );
+      const stateDir = path.join(baseDir, "userdata");
+      const catalogPath = path.join(stateDir, "connection-catalog.json");
 
       assert.isTrue(yield* store.set('{"schemaVersion":1,"targets":[]}'));
+      const stored = yield* fileSystem.readFileString(catalogPath);
       yield* Ref.set(failDecrypt, true);
-      const error = yield* store.get.pipe(Effect.flip);
-      assert.instanceOf(
-        error,
-        DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreProtectionError,
-      );
-      assert.equal(error.operation, "decrypt-catalog");
-      assert.equal(error.catalogPath, path.join(baseDir, "userdata", "connection-catalog.json"));
-      assert.instanceOf(error.cause, ElectronSafeStorage.ElectronSafeStorageDecryptError);
-      const decryptError = error.cause as ElectronSafeStorage.ElectronSafeStorageDecryptError;
-      assert.instanceOf(decryptError.cause, Error);
-      assert.equal(decryptError.cause.message, "invalid encrypted catalog");
-      assert.equal(
-        error.message,
-        `Desktop connection catalog protection failed during decrypt-catalog at ${path.join(baseDir, "userdata", "connection-catalog.json")}.`,
-      );
-      assert.notEqual(error.message, decryptError.message);
+
+      assert.isTrue(Option.isNone(yield* store.get));
+      assert.isFalse(yield* fileSystem.exists(catalogPath));
+      assert.deepStrictEqual(yield* readQuarantinedCatalogs(stateDir), [stored]);
+
+      // With the unreadable catalog moved aside the client can save connections again.
       yield* Ref.set(failDecrypt, false);
+      assert.isTrue(yield* store.set('{"schemaVersion":1,"targets":[]}'));
       assert.deepStrictEqual(yield* store.get, Option.some('{"schemaVersion":1,"targets":[]}'));
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );

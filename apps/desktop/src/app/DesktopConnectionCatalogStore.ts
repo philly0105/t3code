@@ -152,8 +152,6 @@ export class DesktopConnectionCatalogStore extends Context.Service<
     readonly get: Effect.Effect<
       Option.Option<string>,
       | DesktopConnectionCatalogStoreReadError
-      | DesktopConnectionCatalogStoreDocumentDecodeError
-      | DesktopConnectionCatalogStoreDecodeError
       | DesktopConnectionCatalogStoreMigrationError
       | DesktopConnectionCatalogStoreProtectionError
     >;
@@ -428,6 +426,33 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  // A stored catalog we cannot read is unusable, and failing `get` would leave the client with no
+  // catalog at all. Move the bytes aside instead of deleting them so the client hydrates empty, the
+  // same way the web backend quarantines a corrupt IndexedDB catalog.
+  const quarantineCatalog = Effect.fn("desktop.connectionCatalogStore.quarantineCatalog")(
+    function* (
+      error:
+        | DesktopConnectionCatalogStoreDocumentDecodeError
+        | DesktopConnectionCatalogStoreDecodeError
+        | DesktopConnectionCatalogStoreProtectionError,
+    ) {
+      const suffix = (yield* crypto.randomUUIDv4).replace(/-/g, "");
+      const quarantinePath = `${catalogPath}.corrupt-${suffix}`;
+      yield* fileSystem.rename(catalogPath, quarantinePath);
+      yield* Effect.logWarning("Quarantined an unusable desktop connection catalog.", {
+        catalogPath,
+        quarantinePath,
+        error: error.message,
+      });
+    },
+    Effect.catch((cause) =>
+      Effect.logWarning("Could not quarantine the unusable desktop connection catalog.", {
+        catalogPath,
+        error: cause,
+      }),
+    ),
+  );
+
   const migrateLegacyCatalog = Effect.gen(function* () {
     if (!(yield* encryptionAvailable)) {
       return Option.none<string>();
@@ -471,14 +496,22 @@ export const make = Effect.gen(function* () {
 
   return DesktopConnectionCatalogStore.of({
     get: Effect.gen(function* () {
-      const document = yield* readDocument(fileSystem, catalogPath);
+      const document = yield* readDocument(fileSystem, catalogPath).pipe(
+        Effect.catch((error) =>
+          error._tag === "DesktopConnectionCatalogStoreReadError"
+            ? Effect.fail(error)
+            : quarantineCatalog(error).pipe(
+                Effect.as(Option.none<EncryptedConnectionCatalogDocument>()),
+              ),
+        ),
+      );
       if (Option.isNone(document)) {
         return yield* migrateLegacyCatalog;
       }
       if (!(yield* encryptionAvailable)) {
         return Option.none<string>();
       }
-      const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
+      return yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
         Effect.flatMap((encryptedCatalog) =>
           safeStorage.decryptString(encryptedCatalog).pipe(
             Effect.mapError(
@@ -491,8 +524,9 @@ export const make = Effect.gen(function* () {
             ),
           ),
         ),
+        Effect.map(Option.some),
+        Effect.catch((error) => quarantineCatalog(error).pipe(Effect.as(Option.none<string>()))),
       );
-      return Option.some(decrypted);
     }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
       if (!(yield* encryptionAvailable)) {
