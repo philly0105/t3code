@@ -116,6 +116,45 @@ function runChecked(command, args) {
   );
 }
 
+function extractZip(zipPath, destDir) {
+  NodeFS.mkdirSync(destDir, { recursive: true });
+  if (hostPlatform === "darwin") {
+    runChecked("ditto", ["-x", "-k", zipPath, destDir]);
+    return;
+  }
+
+  const pythonScript =
+    "import os, sys, zipfile; os.makedirs(sys.argv[2], exist_ok=True); zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])";
+  const candidates =
+    hostPlatform === "win32"
+      ? [
+          { cmd: "python", args: ["-c", pythonScript, zipPath, destDir] },
+          { cmd: "py", args: ["-3", "-c", pythonScript, zipPath, destDir] },
+          { cmd: "tar", args: ["-xf", zipPath, "-C", destDir] },
+          { cmd: "python3", args: ["-c", pythonScript, zipPath, destDir] },
+        ]
+      : [
+          { cmd: "python3", args: ["-c", pythonScript, zipPath, destDir] },
+          { cmd: "python", args: ["-c", pythonScript, zipPath, destDir] },
+          { cmd: "tar", args: ["-xf", zipPath, "-C", destDir] },
+        ];
+
+  let lastError;
+  for (const { cmd, args } of candidates) {
+    const result = NodeChildProcess.spawnSync(cmd, args, {
+      encoding: "utf8",
+      stdio: "inherit",
+    });
+    if (result.status === 0) {
+      return;
+    }
+    lastError = new Error(
+      `${cmd} ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`,
+    );
+  }
+  throw lastError;
+}
+
 function installElectronRuntime(electronDir, version) {
   const tempDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-electron-"));
   const zipPath = NodePath.join(tempDir, `electron-v${version}-${hostPlatform}-${hostArch}.zip`);
@@ -127,16 +166,7 @@ function installElectronRuntime(electronDir, version) {
       "-o",
       zipPath,
     ]);
-    if (hostPlatform === "darwin") {
-      runChecked("ditto", ["-x", "-k", zipPath, NodePath.join(electronDir, "dist")]);
-    } else {
-      runChecked("python3", [
-        "-c",
-        "import os, sys, zipfile; os.makedirs(sys.argv[2], exist_ok=True); zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])",
-        zipPath,
-        NodePath.join(electronDir, "dist"),
-      ]);
-    }
+    extractZip(zipPath, NodePath.join(electronDir, "dist"));
   } finally {
     NodeFS.rmSync(tempDir, { recursive: true, force: true });
   }
