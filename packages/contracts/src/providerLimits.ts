@@ -77,7 +77,7 @@ export const ProviderUsageReadInput = Schema.Struct({
 });
 export type ProviderUsageReadInput = typeof ProviderUsageReadInput.Type;
 
-export class ProviderUsageReadError extends Schema.TaggedErrorClass<ProviderUsageReadError>()(
+export class ProviderUsageReadError extends Schema.TaggedError<ProviderUsageReadError>()(
   "ProviderUsageReadError",
   {
     reason: Schema.Literals(["unsupported", "readFailed"]),

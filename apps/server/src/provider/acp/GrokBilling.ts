@@ -6,19 +6,25 @@
  * the same credits config is fetched from the CLI chat proxy that the
  * extension handler itself calls.
  */
+// @effect-diagnostics-next-line nodeBuiltinImport:off - grokHomeDirectory is a pure sync helper, so it cannot use the Path service.
 import * as NodePath from "node:path";
 
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
 
 import { ProviderAdapterRequestError } from "../Errors.ts";
+
+const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
 const PROVIDER = "grok";
 const READ_USAGE = "readUsage";
 const DEFAULT_GROK_CLI_PROXY_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
 const GROK_CLI_TOKEN_AUTH_VALUE = "xai-grok-cli";
 const BILLING_FETCH_TIMEOUT_MS = 15_000;
+
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export type GrokCachedAuth = {
   readonly key: string;
@@ -97,10 +103,10 @@ function usageReadError(detail: string, cause?: unknown): ProviderAdapterRequest
 }
 
 export const readGrokCliProxyBilling = (input: {
-  readonly fileSystem: FileSystem.FileSystem["Service"];
-  readonly path: Path.Path["Service"];
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly path: Path.Path;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly fetch?: typeof globalThis.fetch;
+  readonly fetch?: FetchLike;
 }): Effect.Effect<unknown, ProviderAdapterRequestError> =>
   Effect.gen(function* () {
     const grokHome = grokHomeDirectory(input.environment);
@@ -115,12 +121,11 @@ export const readGrokCliProxyBilling = (input: {
           usageReadError("Could not read the Grok login cache. Sign in with `grok login`.", cause),
         ),
       );
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (cause) {
-      return yield* usageReadError("Grok login cache was not valid JSON.", cause);
-    }
+    const parsed = yield* decodeJson(raw).pipe(
+      Effect.mapError((cause) =>
+        usageReadError("Grok login cache was not valid JSON.", cause),
+      ),
+    );
     const auth = parseGrokCachedAuth(parsed);
     if (!auth) {
       return yield* usageReadError(

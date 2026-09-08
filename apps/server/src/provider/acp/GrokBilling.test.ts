@@ -90,9 +90,7 @@ it.layer(NodeServices.layer)("readGrokCliProxyBilling", (it) => {
       const grokHome = yield* fileSystem.makeTempDirectoryScoped({ prefix: "grok-billing-" });
       yield* fileSystem.writeFileString(
         path.join(grokHome, "auth.json"),
-        JSON.stringify({
-          "https://auth.x.ai::account": { key: "tok_test", user_id: "user-1" },
-        }),
+        '{"https://auth.x.ai::account":{"key":"tok_test","user_id":"user-1"}}',
       );
 
       const requests: Array<{
