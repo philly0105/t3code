@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -34,11 +35,10 @@ export type DesktopLifecycleRuntimeServices =
   | DesktopState.DesktopState
   | DesktopWindow.DesktopWindow
   | ElectronApp.ElectronApp
-  | ElectronTheme.ElectronTheme;
-
-type DesktopLifecycleRegistrationServices =
-  | DesktopLifecycleRuntimeServices
+  | ElectronTheme.ElectronTheme
   | ElectronWindow.ElectronWindow;
+
+type DesktopLifecycleRegistrationServices = DesktopLifecycleRuntimeServices;
 
 /**
  * @effect-expect-leaking DesktopEnvironment | DesktopShutdown | DesktopState | DesktopWindow | ElectronApp | ElectronTheme | ElectronWindow
@@ -162,20 +162,34 @@ function quitFromSignal(
 export const make = DesktopLifecycle.of({
   relaunch: Effect.fn("desktop.lifecycle.relaunch")(function* (reason) {
     const electronApp = yield* ElectronApp.ElectronApp;
+    const electronWindow = yield* ElectronWindow.ElectronWindow;
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     const state = yield* DesktopState.DesktopState;
     yield* logLifecycleInfo("desktop relaunch requested", { reason });
     yield* Effect.gen(function* () {
       yield* Effect.yieldNow;
       yield* Ref.set(state.quitting, true);
-      yield* requestDesktopShutdownAndWait();
+      // Destroy renderer windows before IPC handlers are released on shutdown so
+      // in-flight UI queries do not race removeHandler during relaunch.
+      yield* requestDesktopShutdownAndWait(
+        electronWindow.destroyAll.pipe(
+          Effect.catchCause((cause) =>
+            logLifecycleError("failed to destroy windows before relaunch", { cause }),
+          ),
+        ),
+      );
       if (environment.isDevelopment) {
         yield* electronApp.exit(75);
         return;
       }
+      // Inside an AppImage, process.execPath is a transient /tmp/.mount_* path.
+      // Prefer APPIMAGE (environment.appImagePath), matching DesktopLinuxUrlHandler.
+      const appImagePath = environment.appImagePath;
+      const execPath = Option.getOrElse(appImagePath, () => process.execPath);
+      const args = Option.isSome(appImagePath) ? [] : process.argv.slice(1);
       yield* electronApp.relaunch({
-        execPath: process.execPath,
-        args: process.argv.slice(1),
+        execPath,
+        args,
       });
       yield* electronApp.exit(0);
     }).pipe(
